@@ -1,0 +1,113 @@
+Fix the profile synchronization issue across accounts.
+
+When a user signs out, completely clear cached profile data, avatar, username, and local state.
+
+When a different user signs in, always fetch fresh profile data from the database and update all screens immediately.
+
+Audit AuthContext, ProfileContext, Home screen, Profile screen, Conversations screen, and any AsyncStorage usage to ensure user data never leaks between accounts.
+
+After fixing that, redesign Nexora into a modern premium social productivity application while preserving all existing functionality.
+
+Requirements:
+
+1. Modern Home Screen
+
+* Personalized greeting using the current user name.
+* Profile card with avatar.
+* Quick actions.
+* Recent activity section.
+* Recent messages preview.
+* Modern premium layout.
+
+2. Professional Conversations Screen
+
+* User avatars.
+* Last message preview.
+* Unread badges.
+* Modern conversation list design.
+* Foundation for typing indicators and online status.
+
+3. Premium Chat Screen
+
+* Modern message bubbles.
+* Better spacing and layout.
+* Message timestamps.
+* Read status foundation.
+* Improved message input area.
+
+4. Enhanced Profile Screen
+
+* Large profile avatar.
+* Username display.
+* Bio/About section.
+* User statistics.
+* Edit profile section.
+
+5. Complete Settings Screen
+
+Account:
+
+* Edit profile.
+* Change password.
+* Logout.
+* Delete account.
+
+Privacy & Security:
+
+* Privacy settings.
+* Security settings.
+* App lock foundation (PIN / biometric ready).
+
+Notifications:
+
+* Message notifications.
+* Friend request notifications.
+
+Appearance:
+
+* Light Mode.
+* Dark Mode.
+* System Mode.
+* Theme color selector.
+* Multiple accent colors (Blue, Purple, Green, Gold, Red, Orange).
+
+Language:
+
+* Arabic.
+* English.
+* French.
+* Spanish.
+* Turkish.
+* German.
+* Hindi.
+* Language switching architecture for future expansion.
+
+Support:
+
+* Help Center.
+* Report a problem.
+* Send feedback.
+* Suggestions and feature requests.
+* Allow attaching screenshots when reporting issues.
+
+About:
+
+* About Nexora.
+* Version information.
+* Footer credit:
+  "Developed by Hafez Al-Sarraa"
+
+6. Keep all current features working:
+
+* Authentication.
+* Usernames.
+* User search.
+* Friend requests.
+* Friends list.
+* Conversations.
+* Messaging.
+* Real-time updates.
+
+7. Use a consistent premium design system across the entire application.
+
+Provide all code changes and update all affected files.

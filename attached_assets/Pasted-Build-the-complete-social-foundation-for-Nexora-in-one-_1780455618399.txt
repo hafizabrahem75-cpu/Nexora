@@ -1,0 +1,109 @@
+Build the complete social foundation for Nexora in one integrated production-ready phase.
+
+Requirements:
+
+1. Unique Usernames
+
+- Add a unique username field for every user.
+- Prevent duplicate usernames.
+- Username validation rules.
+- Username availability checking.
+- Username editing screen inside profile.
+- Store usernames in the database.
+
+2. User Search
+
+- Search users by username.
+- Fast search architecture.
+- Search results screen.
+- User profile preview from search results.
+
+3. Friend System
+
+- Send friend requests.
+- Accept friend requests.
+- Reject friend requests.
+- Cancel pending requests.
+- Remove friends.
+- Incoming requests screen.
+- Outgoing requests screen.
+- Friends list screen.
+
+4. Private Messaging System
+
+- One-to-one conversations between friends.
+- Conversation creation.
+- Conversation list screen.
+- Chat screen.
+- Message persistence in database.
+- Message timestamps.
+- Unread message counters.
+- Conversation previews.
+
+5. Real-Time Messaging
+
+- Implement real-time message delivery.
+- Messages must appear instantly for both users without refreshing.
+- Real-time architecture must be scalable for future group chats.
+
+6. Database Layer
+
+Create all required tables, relationships, indexes and models for:
+
+- usernames
+- friend_requests
+- friendships
+- conversations
+- messages
+- unread tracking
+
+7. Security
+
+- All endpoints protected with authentication.
+- Users can only access their own conversations.
+- Validate all user actions.
+- Prevent duplicate friend requests.
+
+8. Mobile UI
+
+Create and connect:
+
+- Search Users screen
+- Friend Requests screen
+- Friends screen
+- Conversations screen
+- Chat screen
+- Username settings screen
+
+9. Architecture
+
+- Use the existing AuthContext.
+- Integrate with the existing user/session system.
+- Keep the code scalable for:
+  - Notifications
+  - Group chats
+  - Nexora AI
+  - Goals system
+  - Video-to-goals feature
+
+10. Completion Report
+
+After implementation provide:
+
+- All created files.
+- All modified files.
+- Database schema summary.
+- API endpoints summary.
+- Screens added.
+- Any remaining work required for production readiness.
+
+Goal:
+After this phase Nexora users should be able to:
+
+1. Create accounts.
+2. Choose unique usernames.
+3. Search for other users.
+4. Send and accept friend requests.
+5. See their friends list.
+6. Open chats.
+7. Exchange real-time messages instantly.

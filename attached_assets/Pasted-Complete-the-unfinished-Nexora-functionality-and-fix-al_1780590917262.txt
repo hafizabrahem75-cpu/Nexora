@@ -1,0 +1,87 @@
+Complete the unfinished Nexora functionality and fix all remaining placeholder systems.
+
+1. Support & Feedback System
+
+- Ensure Report Problem, Request Help, Suggest Feature, and General Feedback are fully functional.
+- Create a database table to store all submissions.
+- Save:
+  - User ID
+  - Username
+  - Email
+  - Submission type
+  - Message
+  - Timestamp
+  - Optional screenshot
+- Ensure submissions persist and can be reviewed later.
+
+2. Developer Admin Panel
+   Create a secure developer-only admin panel.
+
+Features:
+
+- View support tickets.
+- View feature requests.
+- View help requests.
+- View platform statistics.
+- View total users.
+- View total friendships.
+- View total conversations.
+- View total messages.
+- View user accounts.
+- Suspend or reactivate user accounts.
+- Delete inappropriate content when necessary.
+- Send platform-wide announcements and notifications.
+
+3. Chat Experience Improvements
+
+- Improve the chat screen design.
+- Add user avatar and username in chat header.
+- Add View Profile action from chat.
+- Add foundation for:
+  - Mute conversation
+  - Archive conversation
+  - Delete conversation
+- Keep all existing messaging functionality working.
+
+4. Notifications System
+
+- Create a Notifications screen.
+- Add notifications for:
+  - New messages
+  - Friend requests
+  - Friend request accepted
+- Add unread notification counters.
+- Store notifications in the database.
+
+5. App Security
+
+- Add App Lock settings.
+- Support PIN lock.
+- Add biometric/fingerprint lock foundation where supported.
+- Ensure secure authentication state handling.
+
+6. Contact Sync Foundation
+
+- Add optional Contacts permission flow.
+- Allow users to sync contacts only if they explicitly approve.
+- Prepare the architecture for future friend discovery using contacts.
+- Do not upload contacts automatically.
+
+7. Theme System
+
+- Ensure Light Mode works across the entire app.
+- Ensure Dark Mode works across the entire app.
+- Ensure System Mode follows the device setting.
+- Persist theme selection.
+- Update all screens immediately when theme changes.
+- Ensure all theme colors work correctly.
+
+8. Final Verification
+
+- Verify all settings buttons work.
+- Verify all navigation works.
+- Verify all data is persisted correctly.
+- Verify language switching works correctly.
+- Do not break authentication, friends, conversations, or messaging.
+
+Provide all code changes and update affected files.
