@@ -9,3 +9,6 @@ export * from "./conversation_participants";
 export * from "./messages";
 export * from "./support_submissions";
 export * from "./notifications";
+export * from "./tasks";
+export * from "./goals";
+export * from "./notes";

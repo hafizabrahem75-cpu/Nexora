@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -17,15 +18,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomNav from "@/components/BottomNav";
 import ReminderPicker from "@/components/ReminderPicker";
+import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
+import { apiFetch } from "@/lib/api";
 import {
   cancelReminder,
   formatReminderLabel,
   scheduleReminder,
 } from "@/utils/notifications";
 
-const STORAGE_KEY = "@nexora_tasks";
+const NOTIF_KEY = "@nexora_task_notif_ids";
+
+interface ApiTask {
+  id: string;
+  userId: string;
+  title: string;
+  completed: boolean;
+  reminderAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface Task {
   id: string;
@@ -36,14 +49,37 @@ interface Task {
   notificationId?: string;
 }
 
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 9);
+async function loadNotifMap(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(NOTIF_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveNotifMap(map: Record<string, string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(NOTIF_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function fromApi(raw: ApiTask, notifMap: Record<string, string>): Task {
+  return {
+    id: raw.id,
+    title: raw.title,
+    completed: raw.completed,
+    createdAt: new Date(raw.createdAt).getTime(),
+    reminderAt: raw.reminderAt ? new Date(raw.reminderAt).getTime() : undefined,
+    notificationId: notifMap[raw.id],
+  };
 }
 
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
   const top = Platform.OS === "web" ? 67 : insets.top;
 
+  const { token } = useAuth();
   const { accent } = useSettings();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors, accent), [colors, accent]);
@@ -59,16 +95,24 @@ export default function TasksScreen() {
   const [reminderPickerVisible, setReminderPickerVisible] = useState(false);
   const reminderTargetId = useRef<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const notifMapRef = useRef<Record<string, string>>({});
 
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => { if (raw) setTasks(JSON.parse(raw)); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const persist = useCallback((updated: Task[]) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      setLoading(true);
+      Promise.all([
+        apiFetch<{ tasks: ApiTask[] }>("/tasks", { token }),
+        loadNotifMap(),
+      ])
+        .then(([{ tasks: raw }, notifMap]) => {
+          notifMapRef.current = notifMap;
+          setTasks(raw.map((t) => fromApi(t, notifMap)));
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, [token])
+  );
 
   const openAdd = () => {
     setPendingDeleteId(null);
@@ -97,44 +141,92 @@ export default function TasksScreen() {
 
   const saveTask = async () => {
     const trimmed = inputText.trim();
-    if (!trimmed) return;
-    let updated: Task[];
+    if (!trimmed || !token) return;
+
     if (editingTask) {
       const old = tasks.find((t) => t.id === editingTask.id);
-      let notifId = old?.notificationId;
+      let notifId: string | undefined = notifMapRef.current[editingTask.id];
       if (draftReminder !== old?.reminderAt) {
         notifId = await scheduleReminder(trimmed, draftReminder ?? 0, notifId);
         if (!draftReminder) notifId = undefined;
       }
-      updated = tasks.map((t) =>
-        t.id === editingTask.id
-          ? { ...t, title: trimmed, reminderAt: draftReminder, notificationId: notifId }
-          : t
+
+      const data = await apiFetch<{ task: ApiTask }>(`/tasks/${editingTask.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          title: trimmed,
+          reminderAt: draftReminder ? new Date(draftReminder).toISOString() : null,
+        }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[editingTask.id] = notifId;
+      else delete newMap[editingTask.id];
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === editingTask.id ? fromApi(data.task, newMap) : t))
       );
     } else {
-      const notifId = draftReminder ? await scheduleReminder(trimmed, draftReminder) : undefined;
-      updated = [{ id: genId(), title: trimmed, completed: false, createdAt: Date.now(), reminderAt: draftReminder, notificationId: notifId }, ...tasks];
+      const notifId = draftReminder
+        ? await scheduleReminder(trimmed, draftReminder)
+        : undefined;
+
+      const data = await apiFetch<{ task: ApiTask }>("/tasks", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          title: trimmed,
+          reminderAt: draftReminder ? new Date(draftReminder).toISOString() : null,
+        }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[data.task.id] = notifId;
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setTasks((prev) => [fromApi(data.task, newMap), ...prev]);
     }
-    setTasks(updated);
-    persist(updated);
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     closeModal();
   };
 
-  const toggleComplete = (id: string) => {
+  const toggleComplete = async (id: string) => {
+    if (!token) return;
     setPendingDeleteId(null);
-    const updated = tasks.map((t) => t.id === id ? { ...t, completed: !t.completed } : t);
-    setTasks(updated);
-    persist(updated);
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const data = await apiFetch<{ task: ApiTask }>(`/tasks/${id}`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ completed: !task.completed }),
+    }).catch(() => null);
+    if (!data) return;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? fromApi(data.task, notifMapRef.current) : t))
+    );
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const confirmDelete = async (id: string) => {
+    if (!token) return;
     const task = tasks.find((t) => t.id === id);
     if (task?.notificationId) await cancelReminder(task.notificationId);
-    const updated = tasks.filter((t) => t.id !== id);
-    setTasks(updated);
-    persist(updated);
+
+    await apiFetch(`/tasks/${id}`, { method: "DELETE", token }).catch(() => {});
+
+    const newMap = { ...notifMapRef.current };
+    delete newMap[id];
+    notifMapRef.current = newMap;
+    await saveNotifMap(newMap);
+
+    setTasks((prev) => prev.filter((t) => t.id !== id));
     setPendingDeleteId(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   };
@@ -153,12 +245,25 @@ export default function TasksScreen() {
   const handleReminderConfirm = async (ts: number) => {
     setReminderPickerVisible(false);
     if (reminderTargetId.current) {
+      if (!token) return;
       const task = tasks.find((t) => t.id === reminderTargetId.current);
       if (!task) return;
       const notifId = await scheduleReminder(task.title, ts, task.notificationId);
-      const updated = tasks.map((t) => t.id === reminderTargetId.current ? { ...t, reminderAt: ts, notificationId: notifId } : t);
-      setTasks(updated);
-      persist(updated);
+      const data = await apiFetch<{ task: ApiTask }>(`/tasks/${task.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ reminderAt: new Date(ts).toISOString() }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[task.id] = notifId;
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? fromApi(data.task, newMap) : t))
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       reminderTargetId.current = null;
     } else {
@@ -170,11 +275,25 @@ export default function TasksScreen() {
   const handleReminderClear = async () => {
     setReminderPickerVisible(false);
     if (reminderTargetId.current) {
+      if (!token) return;
       const task = tasks.find((t) => t.id === reminderTargetId.current);
-      if (task?.notificationId) await cancelReminder(task.notificationId);
-      const updated = tasks.map((t) => t.id === reminderTargetId.current ? { ...t, reminderAt: undefined, notificationId: undefined } : t);
-      setTasks(updated);
-      persist(updated);
+      if (!task) return;
+      if (task.notificationId) await cancelReminder(task.notificationId);
+      const data = await apiFetch<{ task: ApiTask }>(`/tasks/${task.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ reminderAt: null }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      delete newMap[task.id];
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? fromApi(data.task, newMap) : t))
+      );
       reminderTargetId.current = null;
     } else {
       setDraftReminder(undefined);

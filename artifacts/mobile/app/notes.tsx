@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -17,11 +17,20 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomNav from "@/components/BottomNav";
+import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
+import { apiFetch } from "@/lib/api";
 
-const STORAGE_KEY = "@nexora_notes";
 const NOTE_ACCENT = "#F59E0B";
+
+interface ApiNote {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface Note {
   id: string;
@@ -29,20 +38,26 @@ interface Note {
   createdAt: number;
 }
 
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 9);
-}
-
 function formatDate(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleDateString("ar-SA", { day: "numeric", month: "short" });
+}
+
+function fromApi(raw: ApiNote): Note {
+  return {
+    id: raw.id,
+    content: raw.content,
+    createdAt: new Date(raw.createdAt).getTime(),
+  };
 }
 
 export default function NotesScreen() {
   const insets = useSafeAreaInsets();
   const top = Platform.OS === "web" ? 67 : insets.top;
 
+  const { token } = useAuth();
   const colors = useColors();
+  const { accent: _accent } = useSettings();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -53,15 +68,16 @@ export default function NotesScreen() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
 
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => { if (raw) setNotes(JSON.parse(raw)); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const persist = useCallback((updated: Note[]) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      setLoading(true);
+      apiFetch<{ notes: ApiNote[] }>("/notes", { token })
+        .then(({ notes: raw }) => setNotes(raw.map(fromApi)))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, [token])
+  );
 
   const openAdd = () => {
     setPendingDeleteId(null);
@@ -85,25 +101,38 @@ export default function NotesScreen() {
     setInputText("");
   };
 
-  const saveNote = () => {
+  const saveNote = async () => {
     const trimmed = inputText.trim();
-    if (!trimmed) return;
-    let updated: Note[];
+    if (!trimmed || !token) return;
+
     if (editingNote) {
-      updated = notes.map((n) => n.id === editingNote.id ? { ...n, content: trimmed } : n);
+      const data = await apiFetch<{ note: ApiNote }>(`/notes/${editingNote.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ content: trimmed }),
+      }).catch(() => null);
+      if (!data) return;
+      setNotes((prev) =>
+        prev.map((n) => (n.id === editingNote.id ? fromApi(data.note) : n))
+      );
     } else {
-      updated = [{ id: genId(), content: trimmed, createdAt: Date.now() }, ...notes];
+      const data = await apiFetch<{ note: ApiNote }>("/notes", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ content: trimmed }),
+      }).catch(() => null);
+      if (!data) return;
+      setNotes((prev) => [fromApi(data.note), ...prev]);
     }
-    setNotes(updated);
-    persist(updated);
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     closeModal();
   };
 
-  const confirmDelete = (id: string) => {
-    const updated = notes.filter((n) => n.id !== id);
-    setNotes(updated);
-    persist(updated);
+  const confirmDelete = async (id: string) => {
+    if (!token) return;
+    await apiFetch(`/notes/${id}`, { method: "DELETE", token }).catch(() => {});
+    setNotes((prev) => prev.filter((n) => n.id !== id));
     setPendingDeleteId(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   };

@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo } from "react";
@@ -35,21 +34,27 @@ interface RecentConv {
   unreadCount: number;
 }
 
-async function loadHomeCounts() {
-  const [tasksRaw, goalsRaw, notesRaw] = await Promise.all([
-    AsyncStorage.getItem("@nexora_tasks"),
-    AsyncStorage.getItem("@nexora_goals"),
-    AsyncStorage.getItem("@nexora_notes"),
+interface ApiTaskOrGoal {
+  id: string;
+  title: string;
+  completed: boolean;
+  reminderAt: string | null;
+}
+
+async function loadHomeCounts(token: string) {
+  const [{ tasks }, { goals }, { notes }] = await Promise.all([
+    apiFetch<{ tasks: ApiTaskOrGoal[] }>("/tasks", { token }),
+    apiFetch<{ goals: ApiTaskOrGoal[] }>("/goals", { token }),
+    apiFetch<{ notes: { id: string }[] }>("/notes", { token }),
   ]);
-  const tasks = tasksRaw ? (JSON.parse(tasksRaw) as any[]) : [];
-  const goals = goalsRaw ? (JSON.parse(goalsRaw) as any[]) : [];
-  const notes = notesRaw ? (JSON.parse(notesRaw) as any[]) : [];
   const now = Date.now();
   const upcoming: ReminderItem[] = [
-    ...tasks.filter((t: any) => t.reminderAt && t.reminderAt > now && !t.completed)
-      .map((t: any) => ({ id: t.id, title: t.title, reminderAt: t.reminderAt, type: "task" as const })),
-    ...goals.filter((g: any) => g.reminderAt && g.reminderAt > now && !g.completed)
-      .map((g: any) => ({ id: g.id, title: g.title, reminderAt: g.reminderAt, type: "goal" as const })),
+    ...tasks
+      .filter((t) => t.reminderAt && new Date(t.reminderAt).getTime() > now && !t.completed)
+      .map((t) => ({ id: t.id, title: t.title, reminderAt: new Date(t.reminderAt!).getTime(), type: "task" as const })),
+    ...goals
+      .filter((g) => g.reminderAt && new Date(g.reminderAt).getTime() > now && !g.completed)
+      .map((g) => ({ id: g.id, title: g.title, reminderAt: new Date(g.reminderAt!).getTime(), type: "goal" as const })),
   ].sort((a, b) => a.reminderAt - b.reminderAt).slice(0, 3);
   return { tasks: tasks.length, goals: goals.length, notes: notes.length, upcoming };
 }
@@ -93,15 +98,16 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadHomeCounts().then(({ tasks, goals, notes, upcoming: u }) => {
-        setCounts({ tasks, goals, notes });
-        setUpcoming(u);
-      });
-      if (token) {
-        apiFetch<{ conversations: RecentConv[] }>("/conversations", { token })
-          .then((d) => setConversations(d.conversations.slice(0, 3)))
-          .catch(() => {});
-      }
+      if (!token) return;
+      loadHomeCounts(token)
+        .then(({ tasks, goals, notes, upcoming: u }) => {
+          setCounts({ tasks, goals, notes });
+          setUpcoming(u);
+        })
+        .catch(() => {});
+      apiFetch<{ conversations: RecentConv[] }>("/conversations", { token })
+        .then((d) => setConversations(d.conversations.slice(0, 3)))
+        .catch(() => {});
     }, [token])
   );
 

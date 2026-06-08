@@ -5,14 +5,24 @@ import { logger } from "./logger";
  * Replace the body of each function with nodemailer / Resend / SendGrid in production.
  */
 
+function devWebUrl(path: string, token: string): string {
+  const domain = process.env.REPLIT_DEV_DOMAIN;
+  return domain
+    ? `https://${domain}/${path}?token=${token}`
+    : `http://localhost:8080/${path}?token=${token}`;
+}
+
 export async function sendPasswordResetEmail(
   email: string,
   token: string,
 ): Promise<void> {
-  const deepLink = `nexora://reset-password?token=${token}`;
   logger.info(
-    { email, deepLink },
-    "[DEV] Password reset email (not sent in dev — use the link above)",
+    {
+      email,
+      webUrl: devWebUrl("forgot-password", token),
+      nativeLink: `mobile://reset-password?token=${token}`,
+    },
+    "[DEV] Password reset email (not sent in dev — open webUrl in browser)",
   );
 }
 
@@ -20,9 +30,12 @@ export async function sendVerificationEmail(
   email: string,
   token: string,
 ): Promise<void> {
-  const deepLink = `nexora://verify-email?token=${token}`;
   logger.info(
-    { email, deepLink },
-    "[DEV] Email verification (not sent in dev — use the link above)",
+    {
+      email,
+      webUrl: devWebUrl("verify-email", token),
+      nativeLink: `mobile://verify-email?token=${token}`,
+    },
+    "[DEV] Email verification (not sent in dev — open webUrl in browser)",
   );
 }

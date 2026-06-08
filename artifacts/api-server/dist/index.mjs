@@ -29396,27 +29396,27 @@ var require_router = __commonJS({
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
-    module.exports = Router10;
+    module.exports = Router13;
     module.exports.Route = Route;
-    function Router10(options) {
-      if (!(this instanceof Router10)) {
-        return new Router10(options);
+    function Router13(options) {
+      if (!(this instanceof Router13)) {
+        return new Router13(options);
       }
       const opts = options || {};
-      function router10(req, res, next) {
-        router10.handle(req, res, next);
+      function router13(req, res, next) {
+        router13.handle(req, res, next);
       }
-      Object.setPrototypeOf(router10, this);
-      router10.caseSensitive = opts.caseSensitive;
-      router10.mergeParams = opts.mergeParams;
-      router10.params = {};
-      router10.strict = opts.strict;
-      router10.stack = [];
-      return router10;
+      Object.setPrototypeOf(router13, this);
+      router13.caseSensitive = opts.caseSensitive;
+      router13.mergeParams = opts.mergeParams;
+      router13.params = {};
+      router13.strict = opts.strict;
+      router13.stack = [];
+      return router13;
     }
-    Router10.prototype = function() {
+    Router13.prototype = function() {
     };
-    Router10.prototype.param = function param(name, fn) {
+    Router13.prototype.param = function param(name, fn) {
       if (!name) {
         throw new TypeError("argument name is required");
       }
@@ -29436,7 +29436,7 @@ var require_router = __commonJS({
       params.push(fn);
       return this;
     };
-    Router10.prototype.handle = function handle(req, res, callback) {
+    Router13.prototype.handle = function handle(req, res, callback) {
       if (!callback) {
         throw new TypeError("argument callback is required");
       }
@@ -29563,7 +29563,7 @@ var require_router = __commonJS({
         }
       }
     };
-    Router10.prototype.use = function use(handler) {
+    Router13.prototype.use = function use(handler) {
       let offset = 0;
       let path = "/";
       if (typeof handler !== "function") {
@@ -29596,7 +29596,7 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router10.prototype.route = function route(path) {
+    Router13.prototype.route = function route(path) {
       const route2 = new Route(path);
       const layer = new Layer(path, {
         sensitive: this.caseSensitive,
@@ -29611,7 +29611,7 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router10.prototype[method] = function(path) {
+      Router13.prototype[method] = function(path) {
         const route = this.route(path);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
@@ -29794,13 +29794,13 @@ var require_application = __commonJS({
     var compileTrust = require_utils5().compileTrust;
     var resolve = __require("node:path").resolve;
     var once = require_once();
-    var Router10 = require_router();
+    var Router13 = require_router();
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var app2 = exports = module.exports = {};
     var trustProxyDefaultSymbol = "@@symbol:trust_proxy_default";
     app2.init = function init() {
-      var router10 = null;
+      var router13 = null;
       this.cache = /* @__PURE__ */ Object.create(null);
       this.engines = /* @__PURE__ */ Object.create(null);
       this.settings = /* @__PURE__ */ Object.create(null);
@@ -29809,13 +29809,13 @@ var require_application = __commonJS({
         configurable: true,
         enumerable: true,
         get: function getrouter() {
-          if (router10 === null) {
-            router10 = new Router10({
+          if (router13 === null) {
+            router13 = new Router13({
               caseSensitive: this.enabled("case sensitive routing"),
               strict: this.enabled("strict routing")
             });
           }
-          return router10;
+          return router13;
         }
       });
     };
@@ -29886,15 +29886,15 @@ var require_application = __commonJS({
       if (fns.length === 0) {
         throw new TypeError("app.use() requires a middleware function");
       }
-      var router10 = this.router;
+      var router13 = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router10.use(path, fn2);
+          return router13.use(path, fn2);
         }
         debug(".use app under %s", path);
         fn2.mountpath = path;
         fn2.parent = this;
-        router10.use(path, function mounted_app(req, res, next) {
+        router13.use(path, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -32467,7 +32467,7 @@ var require_express = __commonJS({
     var EventEmitter = __require("node:events").EventEmitter;
     var mixin = require_merge_descriptors();
     var proto = require_application();
-    var Router10 = require_router();
+    var Router13 = require_router();
     var req = require_request();
     var res = require_response();
     exports = module.exports = createApplication;
@@ -32489,8 +32489,8 @@ var require_express = __commonJS({
     exports.application = proto;
     exports.request = req;
     exports.response = res;
-    exports.Route = Router10.Route;
-    exports.Router = Router10;
+    exports.Route = Router13.Route;
+    exports.Router = Router13;
     exports.json = bodyParser.json;
     exports.raw = bodyParser.raw;
     exports.static = require_serve_static();
@@ -44329,12 +44329,15 @@ __export(schema_exports, {
   emailVerificationTokensTable: () => emailVerificationTokensTable,
   friendRequestsTable: () => friendRequestsTable,
   friendshipsTable: () => friendshipsTable,
+  goalsTable: () => goalsTable,
   messagesTable: () => messagesTable,
+  notesTable: () => notesTable,
   notificationsTable: () => notificationsTable,
   passwordResetTokensTable: () => passwordResetTokensTable,
   publicUserSchema: () => publicUserSchema,
   sessionsTable: () => sessionsTable,
   supportSubmissionsTable: () => supportSubmissionsTable,
+  tasksTable: () => tasksTable,
   usersTable: () => usersTable
 });
 
@@ -55852,6 +55855,37 @@ var notificationsTable = pgTable("notifications", {
   createdAt: timestamp("created_at").notNull().defaultNow()
 });
 
+// ../../lib/db/src/schema/tasks.ts
+var tasksTable = pgTable("tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  reminderAt: timestamp("reminder_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+});
+
+// ../../lib/db/src/schema/goals.ts
+var goalsTable = pgTable("goals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  reminderAt: timestamp("reminder_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+});
+
+// ../../lib/db/src/schema/notes.ts
+var notesTable = pgTable("notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+});
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -55876,12 +55910,12 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // src/app.ts
-var import_express10 = __toESM(require_express2(), 1);
+var import_express13 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib5(), 1);
 var import_pino_http = __toESM(require_logger(), 1);
 
 // src/routes/index.ts
-var import_express9 = __toESM(require_express2(), 1);
+var import_express12 = __toESM(require_express2(), 1);
 
 // src/routes/admin.ts
 var import_express = __toESM(require_express2(), 1);
@@ -57863,18 +57897,28 @@ var logger = (0, import_pino.default)({
 });
 
 // src/lib/email.ts
+function devWebUrl(path, token) {
+  const domain2 = process.env.REPLIT_DEV_DOMAIN;
+  return domain2 ? `https://${domain2}/${path}?token=${token}` : `http://localhost:8080/${path}?token=${token}`;
+}
 async function sendPasswordResetEmail(email3, token) {
-  const deepLink = `nexora://reset-password?token=${token}`;
   logger.info(
-    { email: email3, deepLink },
-    "[DEV] Password reset email (not sent in dev \u2014 use the link above)"
+    {
+      email: email3,
+      webUrl: devWebUrl("forgot-password", token),
+      nativeLink: `mobile://reset-password?token=${token}`
+    },
+    "[DEV] Password reset email (not sent in dev \u2014 open webUrl in browser)"
   );
 }
 async function sendVerificationEmail(email3, token) {
-  const deepLink = `nexora://verify-email?token=${token}`;
   logger.info(
-    { email: email3, deepLink },
-    "[DEV] Email verification (not sent in dev \u2014 use the link above)"
+    {
+      email: email3,
+      webUrl: devWebUrl("verify-email", token),
+      nativeLink: `mobile://verify-email?token=${token}`
+    },
+    "[DEV] Email verification (not sent in dev \u2014 open webUrl in browser)"
   );
 }
 
@@ -58609,8 +58653,86 @@ router4.delete("/:friendId", requireAuth, async (req, res) => {
 });
 var friends_default = router4;
 
-// src/routes/health.ts
+// src/routes/goals.ts
 var import_express5 = __toESM(require_express2(), 1);
+var router5 = (0, import_express5.Router)();
+router5.get("/", requireAuth, async (req, res) => {
+  try {
+    const items = await db.select().from(goalsTable).where(eq(goalsTable.userId, req.userId)).orderBy(desc(goalsTable.createdAt));
+    res.json({ goals: items });
+  } catch (err) {
+    req.log.error(err, "getGoals failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var CreateBody = external_exports.object({
+  title: external_exports.string().min(1).max(500),
+  reminderAt: external_exports.string().nullable().optional()
+});
+router5.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [goal] = await db.insert(goalsTable).values({
+      userId: req.userId,
+      title: parsed.data.title,
+      reminderAt: parsed.data.reminderAt ? new Date(parsed.data.reminderAt) : null
+    }).returning();
+    res.status(201).json({ goal });
+  } catch (err) {
+    req.log.error(err, "createGoal failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var UpdateBody = external_exports.object({
+  title: external_exports.string().min(1).max(500).optional(),
+  completed: external_exports.boolean().optional(),
+  reminderAt: external_exports.string().nullable().optional()
+});
+router5.patch("/:id", requireAuth, async (req, res) => {
+  const parsed = UpdateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const updates = { updatedAt: /* @__PURE__ */ new Date() };
+    if (parsed.data.title !== void 0) updates.title = parsed.data.title;
+    if (parsed.data.completed !== void 0) updates.completed = parsed.data.completed;
+    if ("reminderAt" in parsed.data) {
+      updates.reminderAt = parsed.data.reminderAt ? new Date(parsed.data.reminderAt) : null;
+    }
+    const [goal] = await db.update(goalsTable).set(updates).where(and(eq(goalsTable.id, req.params.id), eq(goalsTable.userId, req.userId))).returning();
+    if (!goal) {
+      res.status(404).json({ error: "\u0627\u0644\u0647\u062F\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    res.json({ goal });
+  } catch (err) {
+    req.log.error(err, "updateGoal failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router5.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const [deleted] = await db.delete(goalsTable).where(and(eq(goalsTable.id, req.params.id), eq(goalsTable.userId, req.userId))).returning({ id: goalsTable.id });
+    if (!deleted) {
+      res.status(404).json({ error: "\u0627\u0644\u0647\u062F\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error(err, "deleteGoal failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var goals_default = router5;
+
+// src/routes/health.ts
+var import_express6 = __toESM(require_express2(), 1);
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
 var util;
@@ -62585,17 +62707,82 @@ var VerifyEmailResponse = objectType({
 });
 
 // src/routes/health.ts
-var router5 = (0, import_express5.Router)();
-router5.get("/healthz", (_req, res) => {
+var router6 = (0, import_express6.Router)();
+router6.get("/healthz", (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
 });
-var health_default = router5;
+var health_default = router6;
+
+// src/routes/notes.ts
+var import_express7 = __toESM(require_express2(), 1);
+var router7 = (0, import_express7.Router)();
+router7.get("/", requireAuth, async (req, res) => {
+  try {
+    const items = await db.select().from(notesTable).where(eq(notesTable.userId, req.userId)).orderBy(desc(notesTable.createdAt));
+    res.json({ notes: items });
+  } catch (err) {
+    req.log.error(err, "getNotes failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var CreateBody2 = external_exports.object({
+  content: external_exports.string().min(1).max(1e4)
+});
+router7.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody2.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [note] = await db.insert(notesTable).values({ userId: req.userId, content: parsed.data.content }).returning();
+    res.status(201).json({ note });
+  } catch (err) {
+    req.log.error(err, "createNote failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var UpdateBody2 = external_exports.object({
+  content: external_exports.string().min(1).max(1e4)
+});
+router7.patch("/:id", requireAuth, async (req, res) => {
+  const parsed = UpdateBody2.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [note] = await db.update(notesTable).set({ content: parsed.data.content, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, req.userId))).returning();
+    if (!note) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
+      return;
+    }
+    res.json({ note });
+  } catch (err) {
+    req.log.error(err, "updateNote failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router7.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const [deleted] = await db.delete(notesTable).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, req.userId))).returning({ id: notesTable.id });
+    if (!deleted) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error(err, "deleteNote failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var notes_default = router7;
 
 // src/routes/notifications.ts
-var import_express6 = __toESM(require_express2(), 1);
-var router6 = (0, import_express6.Router)();
-router6.get("/", requireAuth, async (req, res) => {
+var import_express8 = __toESM(require_express2(), 1);
+var router8 = (0, import_express8.Router)();
+router8.get("/", requireAuth, async (req, res) => {
   try {
     const items = await db.select().from(notificationsTable).where(eq(notificationsTable.userId, req.userId)).orderBy(desc(notificationsTable.createdAt)).limit(50);
     res.json({ notifications: items });
@@ -62604,7 +62791,7 @@ router6.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router6.get("/unread-count", requireAuth, async (req, res) => {
+router8.get("/unread-count", requireAuth, async (req, res) => {
   try {
     const [row] = await db.select({ count: count() }).from(notificationsTable).where(
       and(
@@ -62622,7 +62809,7 @@ var MarkReadBody = external_exports.union([
   external_exports.object({ all: external_exports.literal(true) }),
   external_exports.object({ ids: external_exports.array(external_exports.string().uuid()).min(1) })
 ]);
-router6.post("/mark-read", requireAuth, async (req, res) => {
+router8.post("/mark-read", requireAuth, async (req, res) => {
   const parsed = MarkReadBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -62645,17 +62832,17 @@ router6.post("/mark-read", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var notifications_default = router6;
+var notifications_default = router8;
 
 // src/routes/support.ts
-var import_express7 = __toESM(require_express2(), 1);
-var router7 = (0, import_express7.Router)();
+var import_express9 = __toESM(require_express2(), 1);
+var router9 = (0, import_express9.Router)();
 var SubmitBody = external_exports.object({
   type: external_exports.enum(["report", "help", "feature", "feedback"]),
   content: external_exports.string().min(1).max(5e3),
   screenshotUri: external_exports.string().nullable().optional()
 });
-router7.post("/", requireAuth, async (req, res) => {
+router9.post("/", requireAuth, async (req, res) => {
   const parsed = SubmitBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -62676,11 +62863,89 @@ router7.post("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var support_default = router7;
+var support_default = router9;
+
+// src/routes/tasks.ts
+var import_express10 = __toESM(require_express2(), 1);
+var router10 = (0, import_express10.Router)();
+router10.get("/", requireAuth, async (req, res) => {
+  try {
+    const items = await db.select().from(tasksTable).where(eq(tasksTable.userId, req.userId)).orderBy(desc(tasksTable.createdAt));
+    res.json({ tasks: items });
+  } catch (err) {
+    req.log.error(err, "getTasks failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var CreateBody3 = external_exports.object({
+  title: external_exports.string().min(1).max(500),
+  reminderAt: external_exports.string().nullable().optional()
+});
+router10.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody3.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [task] = await db.insert(tasksTable).values({
+      userId: req.userId,
+      title: parsed.data.title,
+      reminderAt: parsed.data.reminderAt ? new Date(parsed.data.reminderAt) : null
+    }).returning();
+    res.status(201).json({ task });
+  } catch (err) {
+    req.log.error(err, "createTask failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var UpdateBody3 = external_exports.object({
+  title: external_exports.string().min(1).max(500).optional(),
+  completed: external_exports.boolean().optional(),
+  reminderAt: external_exports.string().nullable().optional()
+});
+router10.patch("/:id", requireAuth, async (req, res) => {
+  const parsed = UpdateBody3.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const updates = { updatedAt: /* @__PURE__ */ new Date() };
+    if (parsed.data.title !== void 0) updates.title = parsed.data.title;
+    if (parsed.data.completed !== void 0) updates.completed = parsed.data.completed;
+    if ("reminderAt" in parsed.data) {
+      updates.reminderAt = parsed.data.reminderAt ? new Date(parsed.data.reminderAt) : null;
+    }
+    const [task] = await db.update(tasksTable).set(updates).where(and(eq(tasksTable.id, req.params.id), eq(tasksTable.userId, req.userId))).returning();
+    if (!task) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0647\u0645\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
+      return;
+    }
+    res.json({ task });
+  } catch (err) {
+    req.log.error(err, "updateTask failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router10.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const [deleted] = await db.delete(tasksTable).where(and(eq(tasksTable.id, req.params.id), eq(tasksTable.userId, req.userId))).returning({ id: tasksTable.id });
+    if (!deleted) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0647\u0645\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error(err, "deleteTask failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var tasks_default = router10;
 
 // src/routes/users.ts
-var import_express8 = __toESM(require_express2(), 1);
-var router8 = (0, import_express8.Router)();
+var import_express11 = __toESM(require_express2(), 1);
+var router11 = (0, import_express11.Router)();
 var USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 function publicUser(u) {
   return {
@@ -62691,7 +62956,7 @@ function publicUser(u) {
     avatarImageUri: u.avatarImageUri
   };
 }
-router8.get("/check-username", async (req, res) => {
+router11.get("/check-username", async (req, res) => {
   const username = req.query["username"]?.toLowerCase().trim();
   if (!username || !USERNAME_RE.test(username)) {
     res.status(400).json({ available: false, error: "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)" });
@@ -62703,7 +62968,7 @@ router8.get("/check-username", async (req, res) => {
 var SetUsernameBody = external_exports.object({
   username: external_exports.string().regex(USERNAME_RE, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)")
 });
-router8.put("/username", requireAuth, async (req, res) => {
+router11.put("/username", requireAuth, async (req, res) => {
   const parsed = SetUsernameBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -62724,7 +62989,7 @@ router8.put("/username", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router8.get("/search", requireAuth, async (req, res) => {
+router11.get("/search", requireAuth, async (req, res) => {
   const q = req.query["q"]?.trim();
   if (!q || q.length < 2) {
     res.json({ users: [] });
@@ -62747,7 +63012,7 @@ router8.get("/search", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router8.get("/:username", requireAuth, async (req, res) => {
+router11.get("/:username", requireAuth, async (req, res) => {
   const username = req.params["username"];
   try {
     const [user] = await db.select({
@@ -62767,22 +63032,25 @@ router8.get("/:username", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var users_default = router8;
+var users_default = router11;
 
 // src/routes/index.ts
-var router9 = (0, import_express9.Router)();
-router9.use(health_default);
-router9.use("/auth", auth_default);
-router9.use("/users", users_default);
-router9.use("/friends", friends_default);
-router9.use("/conversations", conversations_default);
-router9.use("/support", support_default);
-router9.use("/notifications", notifications_default);
-router9.use("/admin", admin_default);
-var routes_default = router9;
+var router12 = (0, import_express12.Router)();
+router12.use(health_default);
+router12.use("/auth", auth_default);
+router12.use("/users", users_default);
+router12.use("/friends", friends_default);
+router12.use("/conversations", conversations_default);
+router12.use("/support", support_default);
+router12.use("/notifications", notifications_default);
+router12.use("/admin", admin_default);
+router12.use("/tasks", tasks_default);
+router12.use("/goals", goals_default);
+router12.use("/notes", notes_default);
+var routes_default = router12;
 
 // src/app.ts
-var app = (0, import_express10.default)();
+var app = (0, import_express13.default)();
 app.use(
   (0, import_pino_http.default)({
     logger,
@@ -62803,8 +63071,8 @@ app.use(
   })
 );
 app.use((0, import_cors.default)());
-app.use(import_express10.default.json());
-app.use(import_express10.default.urlencoded({ extended: true }));
+app.use(import_express13.default.json());
+app.use(import_express13.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
 var app_default = app;
 

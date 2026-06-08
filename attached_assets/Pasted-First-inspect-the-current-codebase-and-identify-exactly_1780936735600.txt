@@ -1,0 +1,86 @@
+First inspect the current codebase and identify exactly which files, routes, database tables, screens, contexts, services, and APIs are involved before making any changes.
+
+Do not assume missing functionality.
+Do not create replacements without checking existing code first.
+Do not remove existing code unless its purpose has been verified.
+
+Before making any modifications:
+
+1. Create a recovery checkpoint branch named:
+   backup-before-critical-fixes
+
+2. Audit the current implementation and provide a detailed plan showing:
+   
+   - Root causes found
+   - Files involved
+   - Database tables involved
+   - API routes involved
+   - Expected fixes
+   - Risks and dependencies
+
+Wait until the audit is complete, then proceed with implementation.
+
+Work ONLY on the following critical issues:
+
+1. Email Verification
+   
+   - Trace the entire registration, email verification, deep-link, and web verification flow.
+   - Identify why verification tokens are not reaching the verification screen on web.
+   - Fix the verification process so it works correctly on both web and mobile.
+   - Preserve mobile deep-link support.
+   - Implement a proper web verification flow if missing.
+   - Verify that newly registered users can successfully activate their accounts.
+
+2. Tasks, Goals, and Notes Backend Support
+   
+   - Audit all AsyncStorage usage related to tasks, goals, and notes.
+   - Determine what data is currently stored locally.
+   - Create database tables only if they do not already exist.
+   - Create complete CRUD API routes.
+   - Connect all related screens to backend persistence.
+   - Ensure data syncs correctly across devices and sessions.
+   - Ensure Home screen statistics use persistent backend data.
+
+3. Notifications Mark Read Endpoint
+   
+   - Investigate why POST /notifications/mark-read returns HTTP 400.
+   - Identify the exact root cause.
+   - Fix both server-side and client-side issues if necessary.
+   - Verify notifications can be marked as read successfully.
+
+Restrictions:
+
+- Do NOT add new features.
+- Do NOT redesign screens.
+- Do NOT refactor unrelated systems.
+- Do NOT modify unrelated functionality.
+- Do NOT introduce placeholder implementations.
+- Keep compatibility with the existing Nexora architecture.
+
+Version Control Requirements:
+
+- Create a separate git commit after each completed critical fix.
+- Use clear descriptive commit messages.
+- Commit changes locally after successful testing.
+- If GitHub access is available, push changes to the repository.
+- If GitHub push is unavailable, provide all git commands required to push manually.
+- Generate a final backup summary of all modified files.
+
+After EACH fix provide:
+
+- Root cause analysis
+- Modified files
+- Database schema changes
+- API routes added or modified
+- Exact code patches
+- Migration steps required
+- Testing steps performed
+- Remaining risks or blockers
+
+Before finishing:
+
+1. Run a final audit of the entire codebase.
+2. Report any remaining critical issues.
+3. Confirm that email verification, tasks, goals, notes persistence, and notifications mark-read functionality are working.
+4. Provide a complete summary of all commits created.
+5. Provide a complete summary of all files modified.

@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -17,16 +18,28 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomNav from "@/components/BottomNav";
 import ReminderPicker from "@/components/ReminderPicker";
+import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
+import { apiFetch } from "@/lib/api";
 import {
   cancelReminder,
   formatReminderLabel,
   scheduleReminder,
 } from "@/utils/notifications";
 
-const STORAGE_KEY = "@nexora_goals";
+const NOTIF_KEY = "@nexora_goal_notif_ids";
 const GOAL_ACCENT = "#34D399";
+
+interface ApiGoal {
+  id: string;
+  userId: string;
+  title: string;
+  completed: boolean;
+  reminderAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface Goal {
   id: string;
@@ -37,15 +50,39 @@ interface Goal {
   notificationId?: string;
 }
 
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 9);
+async function loadNotifMap(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(NOTIF_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveNotifMap(map: Record<string, string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(NOTIF_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function fromApi(raw: ApiGoal, notifMap: Record<string, string>): Goal {
+  return {
+    id: raw.id,
+    title: raw.title,
+    completed: raw.completed,
+    createdAt: new Date(raw.createdAt).getTime(),
+    reminderAt: raw.reminderAt ? new Date(raw.reminderAt).getTime() : undefined,
+    notificationId: notifMap[raw.id],
+  };
 }
 
 export default function GoalsScreen() {
   const insets = useSafeAreaInsets();
   const top = Platform.OS === "web" ? 67 : insets.top;
 
+  const { token } = useAuth();
   const colors = useColors();
+  const { accent: _accent } = useSettings();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -59,16 +96,24 @@ export default function GoalsScreen() {
   const [reminderPickerVisible, setReminderPickerVisible] = useState(false);
   const reminderTargetId = useRef<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const notifMapRef = useRef<Record<string, string>>({});
 
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => { if (raw) setGoals(JSON.parse(raw)); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const persist = useCallback((updated: Goal[]) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      setLoading(true);
+      Promise.all([
+        apiFetch<{ goals: ApiGoal[] }>("/goals", { token }),
+        loadNotifMap(),
+      ])
+        .then(([{ goals: raw }, notifMap]) => {
+          notifMapRef.current = notifMap;
+          setGoals(raw.map((g) => fromApi(g, notifMap)));
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, [token])
+  );
 
   const openAdd = () => {
     setPendingDeleteId(null); setEditingGoal(null); setInputText(""); setDraftReminder(undefined);
@@ -86,37 +131,93 @@ export default function GoalsScreen() {
 
   const saveGoal = async () => {
     const trimmed = inputText.trim();
-    if (!trimmed) return;
-    let updated: Goal[];
+    if (!trimmed || !token) return;
+
     if (editingGoal) {
       const old = goals.find((g) => g.id === editingGoal.id);
-      let notifId = old?.notificationId;
+      let notifId: string | undefined = notifMapRef.current[editingGoal.id];
       if (draftReminder !== old?.reminderAt) {
         notifId = await scheduleReminder(trimmed, draftReminder ?? 0, notifId);
         if (!draftReminder) notifId = undefined;
       }
-      updated = goals.map((g) => g.id === editingGoal.id ? { ...g, title: trimmed, reminderAt: draftReminder, notificationId: notifId } : g);
+
+      const data = await apiFetch<{ goal: ApiGoal }>(`/goals/${editingGoal.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          title: trimmed,
+          reminderAt: draftReminder ? new Date(draftReminder).toISOString() : null,
+        }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[editingGoal.id] = notifId;
+      else delete newMap[editingGoal.id];
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setGoals((prev) =>
+        prev.map((g) => (g.id === editingGoal.id ? fromApi(data.goal, newMap) : g))
+      );
     } else {
-      const notifId = draftReminder ? await scheduleReminder(trimmed, draftReminder) : undefined;
-      updated = [{ id: genId(), title: trimmed, completed: false, createdAt: Date.now(), reminderAt: draftReminder, notificationId: notifId }, ...goals];
+      const notifId = draftReminder
+        ? await scheduleReminder(trimmed, draftReminder)
+        : undefined;
+
+      const data = await apiFetch<{ goal: ApiGoal }>("/goals", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          title: trimmed,
+          reminderAt: draftReminder ? new Date(draftReminder).toISOString() : null,
+        }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[data.goal.id] = notifId;
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setGoals((prev) => [fromApi(data.goal, newMap), ...prev]);
     }
-    setGoals(updated); persist(updated);
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     closeModal();
   };
 
-  const toggleComplete = (id: string) => {
+  const toggleComplete = async (id: string) => {
+    if (!token) return;
     setPendingDeleteId(null);
-    const updated = goals.map((g) => g.id === id ? { ...g, completed: !g.completed } : g);
-    setGoals(updated); persist(updated);
+    const goal = goals.find((g) => g.id === id);
+    if (!goal) return;
+    const data = await apiFetch<{ goal: ApiGoal }>(`/goals/${id}`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ completed: !goal.completed }),
+    }).catch(() => null);
+    if (!data) return;
+    setGoals((prev) =>
+      prev.map((g) => (g.id === id ? fromApi(data.goal, notifMapRef.current) : g))
+    );
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const confirmDelete = async (id: string) => {
+    if (!token) return;
     const goal = goals.find((g) => g.id === id);
     if (goal?.notificationId) await cancelReminder(goal.notificationId);
-    const updated = goals.filter((g) => g.id !== id);
-    setGoals(updated); persist(updated); setPendingDeleteId(null);
+
+    await apiFetch(`/goals/${id}`, { method: "DELETE", token }).catch(() => {});
+
+    const newMap = { ...notifMapRef.current };
+    delete newMap[id];
+    notifMapRef.current = newMap;
+    await saveNotifMap(newMap);
+
+    setGoals((prev) => prev.filter((g) => g.id !== id));
+    setPendingDeleteId(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   };
 
@@ -126,11 +227,25 @@ export default function GoalsScreen() {
   const handleReminderConfirm = async (ts: number) => {
     setReminderPickerVisible(false);
     if (reminderTargetId.current) {
+      if (!token) return;
       const goal = goals.find((g) => g.id === reminderTargetId.current);
       if (!goal) return;
       const notifId = await scheduleReminder(goal.title, ts, goal.notificationId);
-      const updated = goals.map((g) => g.id === reminderTargetId.current ? { ...g, reminderAt: ts, notificationId: notifId } : g);
-      setGoals(updated); persist(updated);
+      const data = await apiFetch<{ goal: ApiGoal }>(`/goals/${goal.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ reminderAt: new Date(ts).toISOString() }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      if (notifId) newMap[goal.id] = notifId;
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setGoals((prev) =>
+        prev.map((g) => (g.id === goal.id ? fromApi(data.goal, newMap) : g))
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       reminderTargetId.current = null;
     } else { setDraftReminder(ts); setModalVisible(true); }
@@ -139,10 +254,26 @@ export default function GoalsScreen() {
   const handleReminderClear = async () => {
     setReminderPickerVisible(false);
     if (reminderTargetId.current) {
+      if (!token) return;
       const goal = goals.find((g) => g.id === reminderTargetId.current);
-      if (goal?.notificationId) await cancelReminder(goal.notificationId);
-      const updated = goals.map((g) => g.id === reminderTargetId.current ? { ...g, reminderAt: undefined, notificationId: undefined } : g);
-      setGoals(updated); persist(updated); reminderTargetId.current = null;
+      if (!goal) return;
+      if (goal.notificationId) await cancelReminder(goal.notificationId);
+      const data = await apiFetch<{ goal: ApiGoal }>(`/goals/${goal.id}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ reminderAt: null }),
+      }).catch(() => null);
+      if (!data) return;
+
+      const newMap = { ...notifMapRef.current };
+      delete newMap[goal.id];
+      notifMapRef.current = newMap;
+      await saveNotifMap(newMap);
+
+      setGoals((prev) =>
+        prev.map((g) => (g.id === goal.id ? fromApi(data.goal, newMap) : g))
+      );
+      reminderTargetId.current = null;
     } else { setDraftReminder(undefined); setModalVisible(true); }
   };
 
