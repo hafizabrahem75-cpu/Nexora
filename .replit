@@ -1,5 +1,5 @@
 run = "cd artifacts/api-server && node dist/index.mjs"
-modules = ["nodejs-20"]
+modules = ["nodejs-20", "web", "bash"]
 
 [agent]
 expertMode = true
@@ -15,3 +15,6 @@ externalPort = 8080
 [[ports]]
 localPort = 18115
 externalPort = 3000
+
+[nix]
+channel = "stable-25_05"
