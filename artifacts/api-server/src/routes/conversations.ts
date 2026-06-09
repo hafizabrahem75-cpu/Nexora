@@ -6,7 +6,7 @@ import {
   messagesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
@@ -195,8 +195,17 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
   const userId = req.userId!;
   const id = req.params["id"] as string;
-  const before = req.query["before"] as string | undefined;
+  const beforeRaw = req.query["before"] as string | undefined;
   const limit = Math.min(Number(req.query["limit"] ?? 50), 100);
+
+  let beforeDate: Date | undefined;
+  if (beforeRaw !== undefined) {
+    beforeDate = new Date(beforeRaw);
+    if (isNaN(beforeDate.getTime())) {
+      res.status(400).json({ error: "قيمة before غير صالحة" });
+      return;
+    }
+  }
 
   try {
     const [participant] = await db
@@ -218,9 +227,18 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     const messages = await db
       .select()
       .from(messagesTable)
-      .where(eq(messagesTable.conversationId, id))
-      .orderBy(asc(messagesTable.createdAt))
+      .where(
+        beforeDate
+          ? and(
+              eq(messagesTable.conversationId, id),
+              lt(messagesTable.createdAt, beforeDate),
+            )
+          : eq(messagesTable.conversationId, id),
+      )
+      .orderBy(desc(messagesTable.createdAt))
       .limit(limit);
+
+    messages.reverse();
 
     await db
       .update(conversationParticipantsTable)

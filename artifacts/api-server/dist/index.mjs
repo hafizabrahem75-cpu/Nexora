@@ -61357,8 +61357,16 @@ router3.post("/", requireAuth, async (req, res) => {
 router3.get("/:id/messages", requireAuth, async (req, res) => {
   const userId = req.userId;
   const id = req.params["id"];
-  const before = req.query["before"];
+  const beforeRaw = req.query["before"];
   const limit = Math.min(Number(req.query["limit"] ?? 50), 100);
+  let beforeDate;
+  if (beforeRaw !== void 0) {
+    beforeDate = new Date(beforeRaw);
+    if (isNaN(beforeDate.getTime())) {
+      res.status(400).json({ error: "\u0642\u064A\u0645\u0629 before \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+      return;
+    }
+  }
   try {
     const [participant] = await db.select({ id: conversationParticipantsTable.id }).from(conversationParticipantsTable).where(
       and(
@@ -61370,7 +61378,13 @@ router3.get("/:id/messages", requireAuth, async (req, res) => {
       res.status(403).json({ error: "\u063A\u064A\u0631 \u0645\u0635\u0631\u062D" });
       return;
     }
-    const messages = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, id)).orderBy(asc(messagesTable.createdAt)).limit(limit);
+    const messages = await db.select().from(messagesTable).where(
+      beforeDate ? and(
+        eq(messagesTable.conversationId, id),
+        lt(messagesTable.createdAt, beforeDate)
+      ) : eq(messagesTable.conversationId, id)
+    ).orderBy(desc(messagesTable.createdAt)).limit(limit);
+    messages.reverse();
     await db.update(conversationParticipantsTable).set({ lastReadAt: /* @__PURE__ */ new Date() }).where(
       and(
         eq(conversationParticipantsTable.conversationId, id),
