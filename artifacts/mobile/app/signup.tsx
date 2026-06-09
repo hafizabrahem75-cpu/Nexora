@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,230 +14,706 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { DS } from "@/constants/ds";
 import { useAuth } from "@/context/AuthContext";
-import { useColors, useSettings } from "@/context/SettingsContext";
+import { ACCENT_COLORS, useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
 import { ApiError } from "@/lib/api";
 
+const TOTAL_STEPS = 5;
+
+interface FormData {
+  name:            string;
+  username:        string;
+  email:           string;
+  phone:           string;
+  password:        string;
+  confirmPassword: string;
+  avatarColor:     string;
+}
+
+const STEP_META: {
+  icon:     React.ComponentProps<typeof Feather>["name"];
+  title:    string;
+  subtitle: string;
+}[] = [
+  { icon: "user",   title: "معلوماتك الأساسية", subtitle: "أخبرنا باسمك واسم المستخدم"       },
+  { icon: "mail",   title: "بيانات التواصل",    subtitle: "سيُستخدم بريدك لتأكيد الحساب"    },
+  { icon: "lock",   title: "كلمة المرور",        subtitle: "اختر كلمة مرور قوية وآمنة"        },
+  { icon: "smile",  title: "شخصيتك",             subtitle: "اختر لوناً يمثّلك في ملفك الشخصي" },
+  { icon: "check-circle", title: "مراجعة البيانات", subtitle: "تأكد من صحة المعلومات قبل الإنشاء" },
+];
+
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
-  const top = Platform.OS === "web" ? 67 : insets.top;
+  const top    = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const { signUp } = useAuth();
+  const { signUp, updateUser, token } = useAuth();
   const { accent } = useSettings();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState<FormData>({
+    name: "", username: "", email: "", phone: "",
+    password: "", confirmPassword: "",
+    avatarColor: accent,
+  });
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm,  setShowConfirm]  = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error,   setError]   = useState("");
 
-  const canSubmit = name.trim().length > 0 && email.trim().length > 0 && password.length >= 8;
+  const pendingUpdate = useRef<{ username?: string; avatarColor?: string } | null>(null);
 
-  async function handleSignUp() {
-    if (!canSubmit || loading) return;
+  useEffect(() => {
+    if (token && pendingUpdate.current) {
+      const patch = pendingUpdate.current;
+      pendingUpdate.current = null;
+      updateUser(patch).catch(() => {}).finally(() => router.replace("/home"));
+    }
+  }, [token, updateUser]);
+
+  function patch(field: keyof FormData, value: string) {
+    setForm((f) => ({ ...f, [field]: value }));
     setError("");
+  }
+
+  function canAdvance(): boolean {
+    switch (step) {
+      case 1: return form.name.trim().length >= 2;
+      case 2: return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+      case 3: return form.password.length >= 8 && form.password === form.confirmPassword;
+      default: return true;
+    }
+  }
+
+  async function handleNext() {
+    setError("");
+    if (step < TOTAL_STEPS) {
+      Haptics.selectionAsync();
+      setStep((s) => s + 1);
+    } else {
+      await handleSubmit();
+    }
+  }
+
+  async function handleSubmit() {
+    if (loading) return;
     setLoading(true);
     try {
-      await signUp(email.trim(), password, name.trim());
+      await signUp(form.email.trim(), form.password, form.name.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/home");
+
+      const extras: { username?: string; avatarColor?: string } = {};
+      if (form.username.trim())              extras.username    = form.username.trim();
+      if (form.avatarColor !== accent)       extras.avatarColor = form.avatarColor;
+
+      if (Object.keys(extras).length > 0) {
+        pendingUpdate.current = extras;
+      } else {
+        router.replace("/home");
+      }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "حدث خطأ ما، يرجى المحاولة مجدداً";
       setError(msg);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
       setLoading(false);
     }
   }
 
+  const meta = STEP_META[step - 1];
+
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: top, paddingBottom: bottom }]}
+      style={[styles.root, { paddingTop: top, paddingBottom: bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <Pressable
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+          onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())}
+          hitSlop={12}
+        >
+          <Feather name="arrow-right" size={20} color={colors.textSecondary} />
+        </Pressable>
+
+        <StepIndicator current={step} total={TOTAL_STEPS} accent={accent} colors={colors} />
+
+        <View style={{ width: 40 }} />
+      </View>
+
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
-            hitSlop={12}
-          >
-            <Feather name="arrow-right" size={22} color={colors.textSecondary} />
-          </Pressable>
+        {/* ── Step hero ── */}
+        <View style={styles.stepHero}>
+          <View style={[styles.stepIconWrap, { backgroundColor: accent + "1E", borderColor: accent + "44" }]}>
+            <Feather name={meta.icon} size={30} color={accent} />
+          </View>
+          <Text style={styles.stepTitle}>{meta.title}</Text>
+          <Text style={styles.stepSubtitle}>{meta.subtitle}</Text>
         </View>
 
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>إنشاء حساب</Text>
-        </View>
-        <Text style={styles.subtitle}>أدخل بياناتك للبدء</Text>
-
-        <View style={styles.form}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>الاسم</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="اسمك الكامل"
-              placeholderTextColor={colors.placeholder}
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              textAlign="right"
-              returnKeyType="next"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>البريد الإلكتروني</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="example@email.com"
-              placeholderTextColor={colors.placeholder}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textAlign="right"
-              returnKeyType="next"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>كلمة المرور</Text>
-            <View style={styles.passwordRow}>
-              <Pressable
-                onPress={() => setShowPassword((v) => !v)}
-                style={styles.eyeButton}
-                hitSlop={8}
-              >
-                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textSecondary} />
-              </Pressable>
+        {/* ── Step 1: Name + Username ── */}
+        {step === 1 && (
+          <View style={styles.form}>
+            <FieldGroup label="الاسم الكامل" required styles={styles}>
               <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="8 أحرف على الأقل"
+                style={styles.input}
+                placeholder="محمد أحمد"
                 placeholderTextColor={colors.placeholder}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoComplete="new-password"
+                value={form.name}
+                onChangeText={(v) => patch("name", v)}
+                autoCapitalize="words"
+                textAlign="right"
+                returnKeyType="next"
+              />
+            </FieldGroup>
+
+            <FieldGroup label="اسم المستخدم" hint="اختياري" styles={styles}>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.inputInner}
+                  placeholder="username"
+                  placeholderTextColor={colors.placeholder}
+                  value={form.username}
+                  onChangeText={(v) => patch("username", v.toLowerCase().replace(/[^a-z0-9_.]/g, ""))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textAlign="left"
+                  returnKeyType="done"
+                />
+                <Text style={[styles.inputAffix, { color: colors.textSecondary }]}>@</Text>
+              </View>
+            </FieldGroup>
+          </View>
+        )}
+
+        {/* ── Step 2: Email + Phone ── */}
+        {step === 2 && (
+          <View style={styles.form}>
+            <FieldGroup label="البريد الإلكتروني" required styles={styles}>
+              <TextInput
+                style={styles.input}
+                placeholder="example@email.com"
+                placeholderTextColor={colors.placeholder}
+                value={form.email}
+                onChangeText={(v) => patch("email", v)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                textAlign="right"
+                returnKeyType="next"
+              />
+            </FieldGroup>
+
+            <FieldGroup label="رقم الهاتف" hint="اختياري" styles={styles}>
+              <TextInput
+                style={styles.input}
+                placeholder="+966 5xx xxx xxxx"
+                placeholderTextColor={colors.placeholder}
+                value={form.phone}
+                onChangeText={(v) => patch("phone", v)}
+                keyboardType="phone-pad"
                 textAlign="right"
                 returnKeyType="done"
-                onSubmitEditing={handleSignUp}
               />
-            </View>
-            {password.length > 0 && password.length < 8 && (
-              <Text style={styles.hint}>كلمة المرور يجب أن تكون 8 أحرف على الأقل</Text>
+            </FieldGroup>
+          </View>
+        )}
+
+        {/* ── Step 3: Password ── */}
+        {step === 3 && (
+          <View style={styles.form}>
+            <FieldGroup label="كلمة المرور" required styles={styles}>
+              <View style={[styles.inputContainer, form.password.length > 0 && form.password.length < 8 && { borderColor: "#F59E0B66" }]}>
+                <TextInput
+                  style={styles.inputInner}
+                  placeholder="8 أحرف على الأقل"
+                  placeholderTextColor={colors.placeholder}
+                  value={form.password}
+                  onChangeText={(v) => patch("password", v)}
+                  secureTextEntry={!showPassword}
+                  autoComplete="new-password"
+                  textAlign="right"
+                  returnKeyType="next"
+                />
+                <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
+                  <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+              {form.password.length > 0 && form.password.length < 8 && (
+                <Text style={styles.fieldHint}>كلمة المرور يجب أن تكون 8 أحرف على الأقل</Text>
+              )}
+            </FieldGroup>
+
+            <FieldGroup label="تأكيد كلمة المرور" required styles={styles}>
+              <View style={[
+                styles.inputContainer,
+                form.confirmPassword.length > 0 && form.password !== form.confirmPassword && { borderColor: "#FF453A66" },
+              ]}>
+                <TextInput
+                  style={styles.inputInner}
+                  placeholder="أعد إدخال كلمة المرور"
+                  placeholderTextColor={colors.placeholder}
+                  value={form.confirmPassword}
+                  onChangeText={(v) => patch("confirmPassword", v)}
+                  secureTextEntry={!showConfirm}
+                  autoComplete="new-password"
+                  textAlign="right"
+                  returnKeyType="done"
+                  onSubmitEditing={handleNext}
+                />
+                <Pressable onPress={() => setShowConfirm((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
+                  <Feather name={showConfirm ? "eye-off" : "eye"} size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+              {form.confirmPassword.length > 0 && form.password !== form.confirmPassword && (
+                <Text style={[styles.fieldHint, { color: "#FF453A" }]}>كلمتا المرور غير متطابقتان</Text>
+              )}
+            </FieldGroup>
+
+            {/* Strength indicator */}
+            {form.password.length > 0 && (
+              <PasswordStrength password={form.password} accent={accent} styles={styles} />
             )}
           </View>
+        )}
 
-          {error ? (
-            <View style={styles.errorBox}>
-              <Feather name="alert-circle" size={14} color="#FF453A" />
-              <Text style={styles.errorText}>{error}</Text>
+        {/* ── Step 4: Avatar Color ── */}
+        {step === 4 && (
+          <View style={styles.form}>
+            <FieldGroup label="لون ملفك الشخصي" styles={styles}>
+              <View style={styles.colorGrid}>
+                {ACCENT_COLORS.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    style={({ pressed }) => [
+                      styles.colorSwatch,
+                      { backgroundColor: c.value },
+                      form.avatarColor === c.value && styles.colorSwatchActive,
+                      pressed && { transform: [{ scale: 0.88 }] },
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      patch("avatarColor", c.value);
+                    }}
+                  >
+                    {form.avatarColor === c.value && (
+                      <Feather name="check" size={20} color="#FFFFFF" />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            </FieldGroup>
+
+            {/* Live preview */}
+            <View style={styles.previewCard}>
+              <View style={[styles.previewAvatar, {
+                backgroundColor: form.avatarColor + "2A",
+                borderColor: form.avatarColor + "55",
+              }]}>
+                <Text style={[styles.previewInitial, { color: form.avatarColor }]}>
+                  {form.name.trim()[0]?.toUpperCase() ?? "N"}
+                </Text>
+              </View>
+              <Text style={styles.previewName}>{form.name || "اسمك"}</Text>
+              {form.username ? (
+                <Text style={styles.previewUsername}>@{form.username}</Text>
+              ) : null}
             </View>
-          ) : null}
-        </View>
+          </View>
+        )}
+
+        {/* ── Step 5: Review ── */}
+        {step === 5 && (
+          <View style={styles.form}>
+            <ReviewCard form={form} accent={accent} colors={colors} styles={styles} />
+          </View>
+        )}
+
+        {/* Error */}
+        {error ? (
+          <View style={styles.errorBox}>
+            <Feather name="alert-circle" size={14} color="#FF453A" />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
+      {/* ── Footer ── */}
       <View style={styles.footer}>
         <Pressable
           style={({ pressed }) => [
-            styles.submitButton,
+            styles.nextBtn,
             { backgroundColor: accent },
-            (!canSubmit || loading) && { opacity: 0.4 },
-            pressed && canSubmit && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+            (!canAdvance() || loading) && { opacity: 0.35 },
+            pressed && canAdvance() && { opacity: 0.85, transform: [{ scale: 0.975 }] },
           ]}
-          onPress={handleSignUp}
-          disabled={!canSubmit || loading}
+          onPress={handleNext}
+          disabled={!canAdvance() || loading}
         >
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.submitButtonText}>إنشاء الحساب</Text>
+            <>
+              {step < TOTAL_STEPS && <Feather name="arrow-left" size={18} color="#FFFFFF" />}
+              <Text style={styles.nextBtnText}>
+                {step < TOTAL_STEPS ? "التالي" : "إنشاء الحساب"}
+              </Text>
+            </>
           )}
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [styles.switchLink, pressed && { opacity: 0.6 }]}
-          onPress={() => router.replace("/login")}
-        >
-          <Text style={styles.switchLinkText}>لديك حساب بالفعل؟ سجّل الدخول</Text>
-        </Pressable>
+        {step === TOTAL_STEPS && (
+          <Pressable
+            style={({ pressed }) => [styles.loginLink, pressed && { opacity: 0.6 }]}
+            onPress={() => router.replace("/login")}
+          >
+            <Text style={styles.loginLinkText}>لديك حساب بالفعل؟ سجّل الدخول</Text>
+          </Pressable>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function StepIndicator({
+  current, total, accent, colors,
+}: {
+  current: number; total: number; accent: string; colors: ThemeColors;
+}) {
+  return (
+    <View style={si.row}>
+      {Array.from({ length: total }).map((_, i) => {
+        const n    = i + 1;
+        const done = n < current;
+        const active = n === current;
+        return (
+          <React.Fragment key={n}>
+            {i > 0 && (
+              <View style={[si.line, { backgroundColor: done ? accent : colors.border }]} />
+            )}
+            <View style={[
+              si.dot,
+              active && { backgroundColor: accent,    borderColor: accent         },
+              done   && { backgroundColor: accent,    borderColor: accent         },
+              !active && !done && { backgroundColor: colors.bg, borderColor: colors.border },
+            ]}>
+              {done ? (
+                <Feather name="check" size={10} color="#FFFFFF" />
+              ) : (
+                <Text style={[si.num, { color: active ? "#FFFFFF" : colors.placeholder }]}>{n}</Text>
+              )}
+            </View>
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+const si = StyleSheet.create({
+  row:  { flexDirection: "row", alignItems: "center" },
+  line: { flex: 1, height: 1.5, marginHorizontal: 2 },
+  dot:  { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  num:  { fontSize: DS.font.size.xxs, fontFamily: DS.font.family.bold },
+});
+
+function FieldGroup({
+  label, required, hint, children, styles,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.fieldGroup}>
+      <View style={styles.labelRow}>
+        {hint ? <Text style={styles.hintTag}>{hint}</Text> : <View />}
+        <Text style={styles.fieldLabel}>
+          {label}
+          {required ? <Text style={{ color: "#FF453A" }}> *</Text> : null}
+        </Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function PasswordStrength({
+  password, accent, styles,
+}: {
+  password: string; accent: string; styles: ReturnType<typeof makeStyles>;
+}) {
+  const score = [
+    password.length >= 8,
+    /[A-Z]/.test(password),
+    /[0-9]/.test(password),
+    /[^A-Za-z0-9]/.test(password),
+  ].filter(Boolean).length;
+
+  const label  = ["ضعيفة", "مقبولة", "جيدة", "قوية"][score - 1] ?? "ضعيفة";
+  const color  = ["#FF453A", "#F59E0B", "#34D399", "#34D399"][score - 1] ?? "#FF453A";
+
+  return (
+    <View style={styles.strengthWrap}>
+      <Text style={[styles.strengthLabel, { color }]}>{label}</Text>
+      <View style={styles.strengthBars}>
+        {[1, 2, 3, 4].map((n) => (
+          <View
+            key={n}
+            style={[
+              styles.strengthBar,
+              { backgroundColor: n <= score ? color : "#2C2C2E" },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ReviewCard({
+  form, accent, colors, styles,
+}: {
+  form: FormData; accent: string; colors: ThemeColors; styles: ReturnType<typeof makeStyles>;
+}) {
+  const rows: { icon: React.ComponentProps<typeof Feather>["name"]; label: string; value: string }[] = [
+    { icon: "user",     label: "الاسم",          value: form.name                                   },
+    { icon: "at-sign",  label: "المستخدم",        value: form.username ? "@" + form.username : "—"  },
+    { icon: "mail",     label: "البريد",          value: form.email                                  },
+    { icon: "phone",    label: "الهاتف",          value: form.phone || "—"                           },
+    { icon: "lock",     label: "كلمة المرور",     value: "•".repeat(Math.min(form.password.length, 10)) },
+  ];
+
+  return (
+    <View style={styles.reviewCard}>
+      {/* Avatar preview */}
+      <View style={styles.reviewAvatarWrap}>
+        <View style={[styles.reviewAvatar, {
+          backgroundColor: form.avatarColor + "2A",
+          borderColor:     form.avatarColor + "55",
+        }]}>
+          <Text style={[styles.reviewAvatarInitial, { color: form.avatarColor }]}>
+            {form.name.trim()[0]?.toUpperCase() ?? "N"}
+          </Text>
+        </View>
+        <Text style={styles.reviewAvatarName}>{form.name}</Text>
+        {form.username ? (
+          <Text style={styles.reviewAvatarHandle}>@{form.username}</Text>
+        ) : null}
+      </View>
+
+      {/* Info rows */}
+      {rows.map((r, i) => (
+        <View
+          key={r.label}
+          style={[styles.reviewRow, i < rows.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }]}
+        >
+          <Text style={styles.reviewValue} numberOfLines={1}>{r.value}</Text>
+          <View style={styles.reviewLabelWrap}>
+            <Text style={styles.reviewLabel}>{r.label}</Text>
+            <View style={[styles.reviewIconWrap, { backgroundColor: accent + "1A" }]}>
+              <Feather name={r.icon} size={12} color={accent} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 24 },
-    scroll: { flexGrow: 1 },
-    header: { paddingTop: 8, paddingBottom: 8, alignItems: "flex-start" },
-    backButton: {
-      width: 40, height: 40, borderRadius: 20,
-      backgroundColor: colors.card, alignItems: "center", justifyContent: "center",
+    root: {
+      flex: 1, backgroundColor: colors.bg, paddingHorizontal: DS.spacing.xl,
     },
-    titleRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 24 },
-    title: {
-      fontSize: 30, fontFamily: "Inter_700Bold", color: colors.text,
-      textAlign: "right", writingDirection: "rtl", marginBottom: 8,
+
+    /* Header */
+    header: {
+      flexDirection: "row", alignItems: "center",
+      justifyContent: "space-between", paddingVertical: DS.spacing.md,
     },
-    subtitle: {
-      fontSize: 15, fontFamily: "Inter_400Regular", color: colors.textSecondary,
-      textAlign: "right", writingDirection: "rtl", marginBottom: 36,
+    backBtn: {
+      width: 40, height: 40, borderRadius: DS.radius.md,
+      backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      alignItems: "center", justifyContent: "center",
     },
-    form: { gap: 20 },
-    fieldGroup: { gap: 8 },
-    label: {
-      fontSize: 14, fontFamily: "Inter_500Medium", color: colors.textSoft,
-      textAlign: "right", writingDirection: "rtl",
+
+    scroll: { flexGrow: 1, paddingBottom: DS.spacing.xl },
+
+    /* Step hero */
+    stepHero: {
+      alignItems: "flex-end",
+      marginTop: DS.spacing.xxl, marginBottom: DS.spacing.xxxl,
     },
+    stepIconWrap: {
+      width: 72, height: 72, borderRadius: DS.radius.xxl,
+      borderWidth: 1.5, alignItems: "center", justifyContent: "center",
+      marginBottom: DS.spacing.lg,
+    },
+    stepTitle: {
+      fontSize: DS.font.size.xxl, fontFamily: DS.font.family.bold,
+      color: colors.text, writingDirection: "rtl", textAlign: "right",
+      letterSpacing: -0.5, marginBottom: DS.spacing.xs,
+    },
+    stepSubtitle: {
+      fontSize: DS.font.size.base, fontFamily: DS.font.family.regular,
+      color: colors.textSecondary, writingDirection: "rtl", textAlign: "right",
+    },
+
+    /* Form */
+    form: { gap: DS.spacing.xl },
+    fieldGroup: { gap: DS.spacing.sm },
+    labelRow: {
+      flexDirection: "row", alignItems: "center",
+      justifyContent: "space-between",
+    },
+    fieldLabel: {
+      fontSize: DS.font.size.base, fontFamily: DS.font.family.medium,
+      color: colors.textSoft, textAlign: "right", writingDirection: "rtl",
+    },
+    hintTag: {
+      fontSize: DS.font.size.xs, fontFamily: DS.font.family.regular,
+      color: colors.textSecondary,
+    },
+
+    /* Inputs */
     input: {
       backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-      borderRadius: 12, paddingHorizontal: 16, paddingVertical: 16,
-      fontSize: 15, fontFamily: "Inter_400Regular", color: colors.text, flex: 1,
+      borderRadius: DS.radius.lg,
+      paddingHorizontal: DS.spacing.lg, paddingVertical: DS.spacing.lg,
+      fontSize: DS.font.size.md, fontFamily: DS.font.family.regular, color: colors.text,
     },
-    passwordRow: {
+    inputContainer: {
       flexDirection: "row", alignItems: "center",
       backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-      borderRadius: 12, paddingHorizontal: 16,
+      borderRadius: DS.radius.lg, paddingHorizontal: DS.spacing.lg,
+      gap: DS.spacing.sm,
     },
-    passwordInput: {
-      backgroundColor: "transparent", borderWidth: 0, borderRadius: 0,
-      paddingHorizontal: 0, flex: 1,
+    inputInner: {
+      flex: 1, paddingVertical: DS.spacing.lg,
+      fontSize: DS.font.size.md, fontFamily: DS.font.family.regular, color: colors.text,
     },
-    eyeButton: { padding: 4 },
-    hint: {
-      fontSize: 12, fontFamily: "Inter_400Regular", color: "#F59E0B",
-      textAlign: "right", writingDirection: "rtl",
+    inputAffix: {
+      fontSize: DS.font.size.lg, fontFamily: DS.font.family.semibold,
     },
+    eyeBtn: { padding: DS.spacing.xs },
+    fieldHint: {
+      fontSize: DS.font.size.xs, fontFamily: DS.font.family.regular,
+      color: "#F59E0B", textAlign: "right", writingDirection: "rtl",
+    },
+
+    /* Password strength */
+    strengthWrap: {
+      flexDirection: "row", alignItems: "center",
+      justifyContent: "flex-end", gap: DS.spacing.sm,
+    },
+    strengthLabel: {
+      fontSize: DS.font.size.xs, fontFamily: DS.font.family.medium, writingDirection: "rtl",
+    },
+    strengthBars: { flexDirection: "row", gap: 4 },
+    strengthBar:  { width: 28, height: 4, borderRadius: 2 },
+
+    /* Color picker */
+    colorGrid: {
+      flexDirection: "row", gap: DS.spacing.md, flexWrap: "wrap",
+    },
+    colorSwatch: {
+      width: 54, height: 54, borderRadius: DS.radius.full,
+      alignItems: "center", justifyContent: "center",
+      borderWidth: 3, borderColor: "transparent",
+    },
+    colorSwatchActive: {
+      borderColor: "#FFFFFF",
+      ...DS.shadow.sm,
+    },
+
+    /* Avatar preview (step 4) */
+    previewCard: {
+      backgroundColor: colors.card, borderRadius: DS.radius.xl,
+      borderWidth: 1, borderColor: colors.border,
+      paddingVertical: DS.spacing.xxl, alignItems: "center", gap: DS.spacing.sm,
+    },
+    previewAvatar: {
+      width: 80, height: 80, borderRadius: DS.radius.full,
+      borderWidth: 2.5, alignItems: "center", justifyContent: "center",
+    },
+    previewInitial: { fontSize: DS.font.size.xxl, fontFamily: DS.font.family.bold },
+    previewName:    { fontSize: DS.font.size.lg,  fontFamily: DS.font.family.semibold, color: colors.text, writingDirection: "rtl" },
+    previewUsername:{ fontSize: DS.font.size.sm,  fontFamily: DS.font.family.regular,  color: colors.textSecondary },
+
+    /* Review card (step 5) */
+    reviewCard: {
+      backgroundColor: colors.card, borderRadius: DS.radius.xl,
+      borderWidth: 1, borderColor: colors.border, overflow: "hidden",
+    },
+    reviewAvatarWrap: {
+      alignItems: "center", paddingVertical: DS.spacing.xxl,
+      borderBottomWidth: 1, borderBottomColor: colors.border, gap: DS.spacing.xs,
+    },
+    reviewAvatar: {
+      width: 72, height: 72, borderRadius: DS.radius.full,
+      borderWidth: 2, alignItems: "center", justifyContent: "center",
+      marginBottom: DS.spacing.xs,
+    },
+    reviewAvatarInitial: { fontSize: DS.font.size.xxl, fontFamily: DS.font.family.bold },
+    reviewAvatarName:    { fontSize: DS.font.size.lg,  fontFamily: DS.font.family.semibold, color: colors.text,          writingDirection: "rtl" },
+    reviewAvatarHandle:  { fontSize: DS.font.size.sm,  fontFamily: DS.font.family.regular,  color: colors.textSecondary },
+    reviewRow: {
+      flexDirection: "row", alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: DS.spacing.lg, paddingVertical: DS.spacing.md,
+    },
+    reviewValue: {
+      flex: 1, fontSize: DS.font.size.base, fontFamily: DS.font.family.medium,
+      color: colors.text, textAlign: "right", writingDirection: "rtl",
+      paddingLeft: DS.spacing.sm,
+    },
+    reviewLabelWrap: { flexDirection: "row", alignItems: "center", gap: DS.spacing.sm },
+    reviewLabel:     { fontSize: DS.font.size.sm, fontFamily: DS.font.family.regular, color: colors.textSecondary, writingDirection: "rtl" },
+    reviewIconWrap:  { width: 28, height: 28, borderRadius: DS.radius.md, alignItems: "center", justifyContent: "center" },
+
+    /* Error */
     errorBox: {
       flexDirection: "row", alignItems: "center", justifyContent: "flex-end",
-      gap: 6, backgroundColor: "#2C1515", borderRadius: 10,
-      paddingHorizontal: 14, paddingVertical: 10,
-      borderWidth: 1, borderColor: "#FF453A33",
+      gap: DS.spacing.sm,
+      backgroundColor: "#2C151540", borderRadius: DS.radius.md,
+      paddingHorizontal: DS.spacing.lg, paddingVertical: DS.spacing.md,
+      borderWidth: 1, borderColor: "#FF453A33", marginTop: DS.spacing.md,
     },
     errorText: {
-      fontSize: 13, fontFamily: "Inter_500Medium", color: "#FF453A",
-      textAlign: "right", writingDirection: "rtl", flex: 1,
+      fontSize: DS.font.size.sm, fontFamily: DS.font.family.medium,
+      color: "#FF453A", textAlign: "right", writingDirection: "rtl", flex: 1,
     },
-    footer: { paddingTop: 16, gap: 12 },
-    submitButton: { borderRadius: 14, paddingVertical: 18, alignItems: "center" },
-    submitButtonText: {
-      color: "#FFFFFF", fontSize: 17, fontFamily: "Inter_600SemiBold", writingDirection: "rtl",
+
+    /* Footer */
+    footer: { paddingTop: DS.spacing.md, gap: DS.spacing.md },
+    nextBtn: {
+      borderRadius: DS.radius.xl, paddingVertical: DS.spacing.xl,
+      flexDirection: "row", alignItems: "center", justifyContent: "center",
+      gap: DS.spacing.sm,
     },
-    switchLink: { alignItems: "center", paddingVertical: 6 },
-    switchLinkText: {
-      fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textSecondary, writingDirection: "rtl",
+    nextBtnText: {
+      color: "#FFFFFF", fontSize: DS.font.size.lg,
+      fontFamily: DS.font.family.semibold, writingDirection: "rtl",
+    },
+    loginLink: { alignItems: "center", paddingVertical: DS.spacing.xs },
+    loginLinkText: {
+      fontSize: DS.font.size.base, fontFamily: DS.font.family.regular,
+      color: colors.textSecondary, writingDirection: "rtl",
     },
   });
 }
