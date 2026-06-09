@@ -1,10 +1,23 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import rateLimit from "express-rate-limit";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "محاولات كثيرة جداً، يرجى المحاولة بعد 15 دقيقة" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", authLimiter);
 
 app.use(
   pinoHttp({

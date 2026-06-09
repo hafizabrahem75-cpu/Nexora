@@ -123,6 +123,11 @@ router.post("/login", async (req, res) => {
       return;
     }
 
+    if (!user.emailVerified) {
+      res.status(403).json({ error: "email_not_verified" });
+      return;
+    }
+
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
       userId: user.id,

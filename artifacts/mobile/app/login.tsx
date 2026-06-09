@@ -45,7 +45,14 @@ export default function LoginScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/home");
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "حدث خطأ ما، يرجى المحاولة مجدداً";
+      let msg = "حدث خطأ ما، يرجى المحاولة مجدداً";
+      if (err instanceof ApiError) {
+        if (err.message === "email_not_verified") {
+          msg = "يرجى تفعيل بريدك الإلكتروني أولاً. تحقق من صندوق الوارد ثم أعد المحاولة.";
+        } else {
+          msg = err.message;
+        }
+      }
       setError(msg);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
