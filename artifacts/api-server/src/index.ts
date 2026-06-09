@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startSessionCleanup } from "./lib/sessionCleanup";
 import { wsManager } from "./lib/wsManager";
 
 const rawPort = process.env["PORT"];
@@ -79,4 +80,5 @@ server.on("error", (err) => {
 
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
+  startSessionCleanup();
 });
