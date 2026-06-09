@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const emailVerificationTokensTable = pgTable("email_verification_tokens", {
@@ -9,7 +9,9 @@ export const emailVerificationTokensTable = pgTable("email_verification_tokens",
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("email_verification_tokens_user_id_idx").on(t.userId),
+]);
 
 export type EmailVerificationToken =
   typeof emailVerificationTokensTable.$inferSelect;

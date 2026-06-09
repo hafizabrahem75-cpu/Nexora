@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const passwordResetTokensTable = pgTable("password_reset_tokens", {
@@ -10,6 +10,8 @@ export const passwordResetTokensTable = pgTable("password_reset_tokens", {
   expiresAt: timestamp("expires_at").notNull(),
   used: boolean("used").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("password_reset_tokens_user_id_idx").on(t.userId),
+]);
 
 export type PasswordResetToken = typeof passwordResetTokensTable.$inferSelect;

@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const tasksTable = pgTable("tasks", {
@@ -9,6 +9,8 @@ export const tasksTable = pgTable("tasks", {
   reminderAt: timestamp("reminder_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("tasks_user_id_idx").on(t.userId),
+]);
 
 export type Task = typeof tasksTable.$inferSelect;

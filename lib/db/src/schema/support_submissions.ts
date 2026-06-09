@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const supportSubmissionsTable = pgTable("support_submissions", {
@@ -10,4 +10,6 @@ export const supportSubmissionsTable = pgTable("support_submissions", {
   content: text("content").notNull(),
   screenshotUri: text("screenshot_uri"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("support_submissions_user_id_idx").on(t.userId),
+]);

@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const friendshipsTable = pgTable("friendships", {
@@ -10,6 +10,9 @@ export const friendshipsTable = pgTable("friendships", {
     .notNull()
     .references(() => usersTable.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("friendships_user_id_1_idx").on(t.userId1),
+  index("friendships_user_id_2_idx").on(t.userId2),
+]);
 
 export type Friendship = typeof friendshipsTable.$inferSelect;
