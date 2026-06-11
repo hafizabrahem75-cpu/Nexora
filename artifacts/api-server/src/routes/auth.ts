@@ -29,10 +29,16 @@ function stripPassword(user: typeof usersTable.$inferSelect) {
 }
 
 // ─── Register ────────────────────────────────────────────────────────────────
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
 const RegisterBody = z.object({
   email: z.email(),
   password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
   name: z.string().min(1).max(60),
+  username: z
+    .string({ error: "اسم المستخدم مطلوب" })
+    .regex(USERNAME_RE, "اسم المستخدم يجب أن يكون 3-20 حرفًا (أحرف إنجليزية صغيرة وأرقام و_)"),
+  avatarColor: z.string().optional(),
 });
 
 router.post("/register", async (req, res) => {
@@ -41,17 +47,29 @@ router.post("/register", async (req, res) => {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "بيانات غير صالحة" });
     return;
   }
-  const { email, password, name } = parsed.data;
+  const { email, password, name, username, avatarColor } = parsed.data;
+  const normalizedUsername = username.toLowerCase();
 
   try {
-    const [existing] = await db
+    const [existingEmail] = await db
       .select({ id: usersTable.id })
       .from(usersTable)
       .where(eq(usersTable.email, email.toLowerCase()))
       .limit(1);
 
-    if (existing) {
+    if (existingEmail) {
       res.status(409).json({ error: "البريد الإلكتروني مسجل بالفعل" });
+      return;
+    }
+
+    const [existingUsername] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.username, normalizedUsername))
+      .limit(1);
+
+    if (existingUsername) {
+      res.status(409).json({ error: "اسم المستخدم مأخوذ، جرب اسمًا آخر" });
       return;
     }
 
@@ -59,7 +77,14 @@ router.post("/register", async (req, res) => {
 
     const [user] = await db
       .insert(usersTable)
-      .values({ email: email.toLowerCase(), passwordHash, name })
+      .values({
+        email: email.toLowerCase(),
+        passwordHash,
+        name,
+        username: normalizedUsername,
+        emailVerified: true,
+        ...(avatarColor ? { avatarColor } : {}),
+      })
       .returning();
 
     if (!user) throw new Error("insert returned nothing");
@@ -70,14 +95,6 @@ router.post("/register", async (req, res) => {
       token: sessionToken,
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
-
-    const verifyToken = makeToken();
-    await db.insert(emailVerificationTokensTable).values({
-      userId: user.id,
-      token: verifyToken,
-      expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
-    });
-    await sendVerificationEmail(user.email, verifyToken);
 
     res.status(201).json({ token: sessionToken, user: stripPassword(user) });
   } catch (err) {

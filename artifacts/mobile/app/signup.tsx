@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,6 +22,7 @@ import type { ThemeColors } from "@/context/SettingsContext";
 import { ApiError } from "@/lib/api";
 
 const TOTAL_STEPS = 5;
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
 interface FormData {
   name:            string;
@@ -50,7 +51,7 @@ export default function SignupScreen() {
   const top    = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const { signUp, updateUser, token } = useAuth();
+  const { signUp } = useAuth();
   const { accent } = useSettings();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -66,16 +67,6 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
 
-  const pendingUpdate = useRef<{ username?: string; avatarColor?: string } | null>(null);
-
-  useEffect(() => {
-    if (token && pendingUpdate.current) {
-      const patch = pendingUpdate.current;
-      pendingUpdate.current = null;
-      updateUser(patch).catch(() => {}).finally(() => router.replace("/home"));
-    }
-  }, [token, updateUser]);
-
   function patch(field: keyof FormData, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
     setError("");
@@ -83,7 +74,11 @@ export default function SignupScreen() {
 
   function canAdvance(): boolean {
     switch (step) {
-      case 1: return form.name.trim().length >= 2;
+      case 1:
+        return (
+          form.name.trim().length >= 2 &&
+          USERNAME_RE.test(form.username)
+        );
       case 2: return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
       case 3: return form.password.length >= 8 && form.password === form.confirmPassword;
       default: return true;
@@ -104,18 +99,15 @@ export default function SignupScreen() {
     if (loading) return;
     setLoading(true);
     try {
-      await signUp(form.email.trim(), form.password, form.name.trim());
+      await signUp(
+        form.email.trim(),
+        form.password,
+        form.name.trim(),
+        form.username.trim(),
+        form.avatarColor,
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      const extras: { username?: string; avatarColor?: string } = {};
-      if (form.username.trim())              extras.username    = form.username.trim();
-      if (form.avatarColor !== accent)       extras.avatarColor = form.avatarColor;
-
-      if (Object.keys(extras).length > 0) {
-        pendingUpdate.current = extras;
-      } else {
-        router.replace("/home");
-      }
+      router.replace("/home");
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "حدث خطأ ما، يرجى المحاولة مجدداً";
       setError(msg);
@@ -176,21 +168,28 @@ export default function SignupScreen() {
               />
             </FieldGroup>
 
-            <FieldGroup label="اسم المستخدم" hint="اختياري" styles={styles}>
-              <View style={styles.inputContainer}>
+            <FieldGroup label="اسم المستخدم" required styles={styles}>
+              <View style={[
+                styles.inputContainer,
+                form.username.length > 0 && !USERNAME_RE.test(form.username) && { borderColor: "#F59E0B66" },
+              ]}>
                 <TextInput
                   style={styles.inputInner}
                   placeholder="username"
                   placeholderTextColor={colors.placeholder}
                   value={form.username}
-                  onChangeText={(v) => patch("username", v.toLowerCase().replace(/[^a-z0-9_.]/g, ""))}
+                  onChangeText={(v) => patch("username", v.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
                   autoCapitalize="none"
                   autoCorrect={false}
                   textAlign="left"
                   returnKeyType="done"
+                  maxLength={20}
                 />
                 <Text style={[styles.inputAffix, { color: colors.textSecondary }]}>@</Text>
               </View>
+              {form.username.length > 0 && !USERNAME_RE.test(form.username) && (
+                <Text style={styles.fieldHint}>3-20 حرف: أحرف إنجليزية صغيرة، أرقام، أو _</Text>
+              )}
             </FieldGroup>
           </View>
         )}

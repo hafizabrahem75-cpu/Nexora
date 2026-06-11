@@ -44,7 +44,7 @@ interface AuthState {
 }
 
 interface AuthActions {
-  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, username: string, avatarColor?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -84,7 +84,7 @@ const AuthContext = createContext<AuthContextValue>({
   token: null,
   isLoading: true,
   isAuthenticated: false,
-  signUp: async () => {},
+  signUp: async (_e, _p, _n, _u) => {},
   signIn: async () => {},
   signOut: async () => {},
   forgotPassword: async () => {},
@@ -141,12 +141,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession]);
 
   const signUp = useCallback(
-    async (email: string, password: string, name: string) => {
+    async (email: string, password: string, name: string, username: string, avatarColor?: string) => {
       const data = await apiFetch<{ token: string; user: PublicUser }>(
         "/auth/register",
         {
           method: "POST",
-          body: JSON.stringify({ email, password, name }),
+          body: JSON.stringify({ email, password, name, username, avatarColor }),
         },
       );
       await saveToken(data.token);

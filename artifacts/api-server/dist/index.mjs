@@ -60921,16 +60921,6 @@ async function sendPasswordResetEmail(email3, token) {
     "[DEV] Password reset email (not sent in dev \u2014 open webUrl in browser)"
   );
 }
-async function sendVerificationEmail(email3, token) {
-  logger.info(
-    {
-      email: email3,
-      webUrl: devWebUrl("verify-email", token),
-      nativeLink: `mobile://verify-email?token=${token}`
-    },
-    "[DEV] Email verification (not sent in dev \u2014 open webUrl in browser)"
-  );
-}
 
 // src/middlewares/requireAuth.ts
 async function requireAuth(req, res, next) {
@@ -60989,10 +60979,13 @@ function stripPassword(user) {
   const { passwordHash: _ph, ...pub } = user;
   return pub;
 }
+var USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 var RegisterBody = external_exports.object({
   email: external_exports.email(),
   password: external_exports.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644"),
-  name: external_exports.string().min(1).max(60)
+  name: external_exports.string().min(1).max(60),
+  username: external_exports.string({ error: "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u0645\u0637\u0644\u0648\u0628" }).regex(USERNAME_RE, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)"),
+  avatarColor: external_exports.string().optional()
 });
 router2.post("/register", async (req, res) => {
   const parsed = RegisterBody.safeParse(req.body);
@@ -61000,15 +60993,28 @@ router2.post("/register", async (req, res) => {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
   }
-  const { email: email3, password, name } = parsed.data;
+  const { email: email3, password, name, username, avatarColor } = parsed.data;
+  const normalizedUsername = username.toLowerCase();
   try {
-    const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email3.toLowerCase())).limit(1);
-    if (existing) {
+    const [existingEmail] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email3.toLowerCase())).limit(1);
+    if (existingEmail) {
       res.status(409).json({ error: "\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0633\u062C\u0644 \u0628\u0627\u0644\u0641\u0639\u0644" });
       return;
     }
+    const [existingUsername] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.username, normalizedUsername)).limit(1);
+    if (existingUsername) {
+      res.status(409).json({ error: "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u0645\u0623\u062E\u0648\u0630\u060C \u062C\u0631\u0628 \u0627\u0633\u0645\u064B\u0627 \u0622\u062E\u0631" });
+      return;
+    }
     const passwordHash = await bcryptjs_default.hash(password, BCRYPT_ROUNDS);
-    const [user] = await db.insert(usersTable).values({ email: email3.toLowerCase(), passwordHash, name }).returning();
+    const [user] = await db.insert(usersTable).values({
+      email: email3.toLowerCase(),
+      passwordHash,
+      name,
+      username: normalizedUsername,
+      emailVerified: true,
+      ...avatarColor ? { avatarColor } : {}
+    }).returning();
     if (!user) throw new Error("insert returned nothing");
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
@@ -61016,13 +61022,6 @@ router2.post("/register", async (req, res) => {
       token: sessionToken,
       expiresAt: new Date(Date.now() + SESSION_TTL_MS)
     });
-    const verifyToken = makeToken();
-    await db.insert(emailVerificationTokensTable).values({
-      userId: user.id,
-      token: verifyToken,
-      expiresAt: new Date(Date.now() + VERIFY_TTL_MS)
-    });
-    await sendVerificationEmail(user.email, verifyToken);
     res.status(201).json({ token: sessionToken, user: stripPassword(user) });
   } catch (err) {
     req.log.error(err, "register failed");
@@ -65974,7 +65973,7 @@ var tasks_default = router10;
 // src/routes/users.ts
 var import_express11 = __toESM(require_express2(), 1);
 var router11 = (0, import_express11.Router)();
-var USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+var USERNAME_RE2 = /^[a-z0-9_]{3,20}$/;
 function publicUser(u) {
   return {
     id: u.id,
@@ -65986,7 +65985,7 @@ function publicUser(u) {
 }
 router11.get("/check-username", async (req, res) => {
   const username = req.query["username"]?.toLowerCase().trim();
-  if (!username || !USERNAME_RE.test(username)) {
+  if (!username || !USERNAME_RE2.test(username)) {
     res.status(400).json({ available: false, error: "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)" });
     return;
   }
@@ -65994,7 +65993,7 @@ router11.get("/check-username", async (req, res) => {
   res.json({ available: !existing });
 });
 var SetUsernameBody = external_exports.object({
-  username: external_exports.string().regex(USERNAME_RE, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)")
+  username: external_exports.string().regex(USERNAME_RE2, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)")
 });
 router11.put("/username", requireAuth, async (req, res) => {
   const parsed = SetUsernameBody.safeParse(req.body);
