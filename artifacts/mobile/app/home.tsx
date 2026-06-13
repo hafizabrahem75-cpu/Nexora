@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo } from "react";
@@ -41,6 +42,172 @@ interface ApiTaskOrGoal {
   title: string;
   completed: boolean;
   reminderAt: string | null;
+  createdAt?: string;
+}
+
+// ─── Recommendations ─────────────────────────────────────────────────────────
+
+const RECS_KEY = "@nexora_recommendations";
+
+type RecType = "productivity" | "goal" | "reminder" | "insight";
+
+interface Recommendation {
+  id: string;
+  type: RecType;
+  title: string;
+  body: string;
+  icon: string;
+  color: string;
+  route: string;
+  createdAt: string;
+}
+
+const REC_META: Record<RecType, { color: string; label: string }> = {
+  productivity: { color: "#7C6EFA", label: "إنتاجية"  },
+  goal:         { color: "#34D399", label: "هدف"       },
+  reminder:     { color: "#F59E0B", label: "تذكير"     },
+  insight:      { color: "#3B82F6", label: "ملاحظة"    },
+};
+
+function uid(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function generateRecommendations(
+  tasks: ApiTaskOrGoal[],
+  goals: ApiTaskOrGoal[],
+  notes: { id: string }[]
+): Recommendation[] {
+  const now       = Date.now();
+  const recs: Recommendation[] = [];
+  const pending   = tasks.filter((t) => !t.completed);
+  const done      = tasks.filter((t) => t.completed);
+  const pendingGoals = goals.filter((g) => !g.completed);
+
+  // 1. Overdue tasks (reminderAt in the past, not completed)
+  const overdue = pending.filter(
+    (t) => t.reminderAt && new Date(t.reminderAt).getTime() < now
+  );
+  if (overdue.length > 0) {
+    recs.push({
+      id:        uid("overdue"),
+      type:      "reminder",
+      title:     `لديك ${overdue.length} ${overdue.length === 1 ? "مهمة متأخرة" : "مهام متأخرة"}`,
+      body:      `"${overdue[0]!.title}" وغيرها تحتاج انتباهك الآن`,
+      icon:      "alert-circle",
+      color:     REC_META.reminder.color,
+      route:     "/tasks",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 2. All tasks complete — celebrate
+  if (tasks.length > 0 && pending.length === 0) {
+    recs.push({
+      id:        uid("alldone"),
+      type:      "insight",
+      title:     "أنجزت جميع مهامك! 🎉",
+      body:      "رائع — حان وقت إضافة تحديات جديدة أو راحة مستحقة",
+      icon:      "award",
+      color:     REC_META.insight.color,
+      route:     "/tasks",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 3. Many pending tasks — suggest quick win (shortest title as proxy)
+  if (pending.length >= 4) {
+    const quick = [...pending].sort((a, b) => a.title.length - b.title.length)[0]!;
+    recs.push({
+      id:        uid("quickwin"),
+      type:      "productivity",
+      title:     "ابدأ بمهمة سريعة",
+      body:      `"${quick.title}" تبدو قابلة للإنجاز الآن — ابدأ بها`,
+      icon:      "zap",
+      color:     REC_META.productivity.color,
+      route:     "/tasks",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 4. No goals — encourage creating one
+  if (goals.length === 0) {
+    recs.push({
+      id:        uid("nogoals"),
+      type:      "goal",
+      title:     "لا توجد أهداف بعد",
+      body:      "حدّد هدفًا واحدًا هذا الأسبوع — القدرة على التتبع تزيد الالتزام بنسبة 42%",
+      icon:      "target",
+      color:     REC_META.goal.color,
+      route:     "/goals",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 5. Stale incomplete goals (created >14d ago, not completed)
+  const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000;
+  const staleGoals = pendingGoals.filter(
+    (g) => g.createdAt && new Date(g.createdAt).getTime() < twoWeeksAgo
+  );
+  if (staleGoals.length > 0) {
+    recs.push({
+      id:        uid("stale"),
+      type:      "goal",
+      title:     "هدف يحتاج متابعة",
+      body:      `"${staleGoals[0]!.title}" لم يُحدَّث منذ أكثر من أسبوعين — هل تريد إعادة النظر فيه؟`,
+      icon:      "refresh-cw",
+      color:     REC_META.goal.color,
+      route:     "/goals",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 6. Good task progress insight
+  if (tasks.length >= 3 && done.length / tasks.length >= 0.6 && pending.length > 0) {
+    const pct = Math.round((done.length / tasks.length) * 100);
+    recs.push({
+      id:        uid("progress"),
+      type:      "insight",
+      title:     `أنجزت ${pct}٪ من مهامك اليوم`,
+      body:      `${pending.length} ${pending.length === 1 ? "مهمة" : "مهام"} متبقية — أنت في المسار الصحيح`,
+      icon:      "trending-up",
+      color:     REC_META.insight.color,
+      route:     "/tasks",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // 7. Notes nudge when there are pending goals but no notes
+  if (pendingGoals.length > 0 && notes.length === 0) {
+    recs.push({
+      id:        uid("notes"),
+      type:      "productivity",
+      title:     "دوّن أفكارك وخططك",
+      body:      "إضافة ملاحظات مرتبطة بأهدافك يساعدك على البقاء منظمًا",
+      icon:      "file-text",
+      color:     REC_META.productivity.color,
+      route:     "/notes",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  // Cap at 4 recommendations
+  return recs.slice(0, 4);
+}
+
+async function saveRecommendations(recs: Recommendation[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(RECS_KEY, JSON.stringify(recs));
+  } catch {}
+}
+
+async function loadCachedRecommendations(): Promise<Recommendation[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RECS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function loadHomeCounts(token: string) {
@@ -59,7 +226,9 @@ async function loadHomeCounts(token: string) {
       .filter((g) => g.reminderAt && new Date(g.reminderAt).getTime() > now && !g.completed)
       .map((g) => ({ id: g.id, title: g.title, reminderAt: new Date(g.reminderAt!).getTime(), type: "goal" as const })),
   ].sort((a, b) => a.reminderAt - b.reminderAt).slice(0, 3);
-  return { tasks: tasks.length, completedTasks, goals: goals.length, notes: notes.length, upcoming };
+  const recommendations = generateRecommendations(tasks, goals, notes);
+  await saveRecommendations(recommendations);
+  return { tasks: tasks.length, completedTasks, goals: goals.length, notes: notes.length, upcoming, recommendations };
 }
 
 function greeting(): string {
@@ -99,8 +268,9 @@ export default function HomeScreen() {
   const styles  = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [counts, setCounts] = React.useState({ tasks: 0, completedTasks: 0, goals: 0, notes: 0 });
-  const [upcoming, setUpcoming]         = React.useState<ReminderItem[]>([]);
+  const [upcoming, setUpcoming]           = React.useState<ReminderItem[]>([]);
   const [conversations, setConversations] = React.useState<RecentConv[]>([]);
+  const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
 
   const displayName   = user?.name ?? profile.name;
   const avatarInitial = displayName.trim()[0] ?? "N";
@@ -109,13 +279,19 @@ export default function HomeScreen() {
   const taskProgress  = counts.tasks > 0 ? counts.completedTasks / counts.tasks : 0;
   const totalUnread   = conversations.reduce((n, c) => n + c.unreadCount, 0);
 
+  // Load cached recommendations immediately on first mount
+  React.useEffect(() => {
+    loadCachedRecommendations().then(setRecommendations);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
       loadHomeCounts(token)
-        .then(({ tasks, completedTasks, goals, notes, upcoming: u }) => {
+        .then(({ tasks, completedTasks, goals, notes, upcoming: u, recommendations: r }) => {
           setCounts({ tasks, completedTasks, goals, notes });
           setUpcoming(u);
+          setRecommendations(r);
         })
         .catch(() => {});
       apiFetch<{ conversations: RecentConv[] }>("/conversations", { token })
@@ -256,6 +432,48 @@ export default function HomeScreen() {
             <Feather name="chevron-left" size={16} color="#7C6EFA" />
           </View>
         </Pressable>
+
+        {/* ── Smart Recommendations ── */}
+        {recommendations.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title="توصيات ذكية" accent="#7C6EFA" icon="cpu" iconColor="#7C6EFA" colors={colors} />
+            {recommendations.map((rec) => {
+              const meta = REC_META[rec.type];
+              return (
+                <Pressable
+                  key={rec.id}
+                  style={({ pressed }) => [
+                    styles.recCard,
+                    { borderColor: meta.color + "33" },
+                    pressed && { opacity: 0.78, transform: [{ scale: 0.98 }] },
+                  ]}
+                  onPress={() => router.push(rec.route as any)}
+                >
+                  <LinearGradient
+                    colors={[meta.color + "10", "transparent"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  <View style={[styles.recStrip, { backgroundColor: meta.color }]} />
+                  <View style={[styles.recIconWrap, { backgroundColor: meta.color + "22" }]}>
+                    <Feather name={rec.icon as any} size={18} color={meta.color} />
+                  </View>
+                  <View style={styles.recBody}>
+                    <View style={styles.recTitleRow}>
+                      <View style={[styles.recTypeBadge, { backgroundColor: meta.color + "22" }]}>
+                        <Text style={[styles.recTypeText, { color: meta.color }]}>{meta.label}</Text>
+                      </View>
+                      <Text style={styles.recTitle} numberOfLines={1}>{rec.title}</Text>
+                    </View>
+                    <Text style={styles.recBodyText} numberOfLines={2}>{rec.body}</Text>
+                  </View>
+                  <Feather name="chevron-left" size={14} color={meta.color + "80"} style={styles.recChevron} />
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {/* ── Today's Summary ── */}
         <View style={styles.section}>
@@ -576,6 +794,36 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
     // Section
     section: { marginBottom: DS.spacing.xxl },
     seeAll:  { fontSize: DS.font.size.sm, fontFamily: DS.font.family.medium },
+
+    // Recommendations
+    recCard: {
+      flexDirection: "row", alignItems: "center",
+      backgroundColor: colors.card, borderRadius: DS.radius.xl,
+      borderWidth: 1, marginBottom: DS.spacing.sm,
+      overflow: "hidden", minHeight: 72,
+      ...DS.shadow.sm,
+    },
+    recStrip: { width: 4, alignSelf: "stretch", flexShrink: 0 },
+    recIconWrap: {
+      width: 40, height: 40, borderRadius: DS.radius.lg,
+      alignItems: "center", justifyContent: "center",
+      marginHorizontal: DS.spacing.md, flexShrink: 0,
+    },
+    recBody: { flex: 1, gap: 4, paddingVertical: DS.spacing.md },
+    recTitleRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7, flexWrap: "nowrap" },
+    recTitle: {
+      flex: 1, fontSize: DS.font.size.sm, fontFamily: DS.font.family.semibold,
+      color: colors.text, writingDirection: "rtl",
+    },
+    recTypeBadge: {
+      borderRadius: DS.radius.pill, paddingHorizontal: 7, paddingVertical: 2, flexShrink: 0,
+    },
+    recTypeText: { fontSize: DS.font.size.xxs, fontFamily: DS.font.family.bold, writingDirection: "rtl" },
+    recBodyText: {
+      fontSize: DS.font.size.xs, fontFamily: DS.font.family.regular,
+      color: colors.textSecondary, writingDirection: "rtl", lineHeight: 18,
+    },
+    recChevron: { marginHorizontal: DS.spacing.md, flexShrink: 0 },
 
     // Stats row
     statsRow: { flexDirection: "row-reverse", gap: DS.spacing.sm },
