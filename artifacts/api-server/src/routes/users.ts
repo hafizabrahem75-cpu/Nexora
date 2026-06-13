@@ -1,5 +1,5 @@
-import { db, usersTable } from "@workspace/db";
-import { eq, ilike, ne } from "drizzle-orm";
+import { db, communityPostsTable, friendshipsTable, postLikesTable, usersTable } from "@workspace/db";
+import { and, count, eq, ilike, inArray, or } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
@@ -102,6 +102,96 @@ router.get("/search", requireAuth, async (req: AuthRequest, res) => {
     res.json({ users: results.filter((u) => u.id !== req.userId) });
   } catch (err) {
     req.log.error(err, "searchUsers failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── Get public profile by userId ────────────────────────────────────────────
+router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
+  const { userId } = req.params as { userId: string };
+  try {
+    const [user] = await db
+      .select({
+        id:             usersTable.id,
+        name:           usersTable.name,
+        username:       usersTable.username,
+        avatarColor:    usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri,
+        createdAt:      usersTable.createdAt,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (!user) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+
+    const [[postsRow], [friendsRow]] = await Promise.all([
+      db
+        .select({ value: count() })
+        .from(communityPostsTable)
+        .where(eq(communityPostsTable.userId, userId)),
+      db
+        .select({ value: count() })
+        .from(friendshipsTable)
+        .where(or(eq(friendshipsTable.userId1, userId), eq(friendshipsTable.userId2, userId))),
+    ]);
+
+    res.json({
+      user,
+      stats: {
+        postsCount:     postsRow?.value ?? 0,
+        friendsCount:   friendsRow?.value ?? 0,
+        followersCount: 0,
+      },
+    });
+  } catch (err) {
+    req.log.error(err, "getUserProfile failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── Get posts by userId ──────────────────────────────────────────────────────
+router.get("/profile/:userId/posts", requireAuth, async (req: AuthRequest, res) => {
+  const { userId } = req.params as { userId: string };
+  try {
+    const rows = await db
+      .select({
+        id:            communityPostsTable.id,
+        content:       communityPostsTable.content,
+        likesCount:    communityPostsTable.likesCount,
+        commentsCount: communityPostsTable.commentsCount,
+        createdAt:     communityPostsTable.createdAt,
+        author: {
+          id:             usersTable.id,
+          name:           usersTable.name,
+          username:       usersTable.username,
+          avatarColor:    usersTable.avatarColor,
+          avatarImageUri: usersTable.avatarImageUri,
+        },
+      })
+      .from(communityPostsTable)
+      .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
+      .where(eq(communityPostsTable.userId, userId))
+      .orderBy(communityPostsTable.createdAt)
+      .limit(100);
+
+    let likedSet = new Set<string>();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db
+        .select({ postId: postLikesTable.postId })
+        .from(postLikesTable)
+        .where(and(eq(postLikesTable.userId, req.userId!), inArray(postLikesTable.postId, postIds)));
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    res.json({ posts });
+  } catch (err) {
+    req.log.error(err, "getUserPosts failed");
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });

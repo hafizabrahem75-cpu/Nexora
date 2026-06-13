@@ -66319,6 +66319,68 @@ router12.get("/search", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
+router12.get("/profile/:userId", requireAuth, async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const [user] = await db.select({
+      id: usersTable.id,
+      name: usersTable.name,
+      username: usersTable.username,
+      avatarColor: usersTable.avatarColor,
+      avatarImageUri: usersTable.avatarImageUri,
+      createdAt: usersTable.createdAt
+    }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!user) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    const [[postsRow], [friendsRow]] = await Promise.all([
+      db.select({ value: count() }).from(communityPostsTable).where(eq(communityPostsTable.userId, userId)),
+      db.select({ value: count() }).from(friendshipsTable).where(or(eq(friendshipsTable.userId1, userId), eq(friendshipsTable.userId2, userId)))
+    ]);
+    res.json({
+      user,
+      stats: {
+        postsCount: postsRow?.value ?? 0,
+        friendsCount: friendsRow?.value ?? 0,
+        followersCount: 0
+      }
+    });
+  } catch (err) {
+    req.log.error(err, "getUserProfile failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router12.get("/profile/:userId/posts", requireAuth, async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const rows = await db.select({
+      id: communityPostsTable.id,
+      content: communityPostsTable.content,
+      likesCount: communityPostsTable.likesCount,
+      commentsCount: communityPostsTable.commentsCount,
+      createdAt: communityPostsTable.createdAt,
+      author: {
+        id: usersTable.id,
+        name: usersTable.name,
+        username: usersTable.username,
+        avatarColor: usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri
+      }
+    }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).where(eq(communityPostsTable.userId, userId)).orderBy(communityPostsTable.createdAt).limit(100);
+    let likedSet = /* @__PURE__ */ new Set();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(and(eq(postLikesTable.userId, req.userId), inArray(postLikesTable.postId, postIds)));
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    res.json({ posts });
+  } catch (err) {
+    req.log.error(err, "getUserPosts failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 router12.get("/:username", requireAuth, async (req, res) => {
   const username = req.params["username"];
   try {

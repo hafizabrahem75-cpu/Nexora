@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -201,12 +201,18 @@ export default function CommunityScreen() {
       <View style={styles.postHeader}>
         <View style={styles.postMeta}>
           <Text style={styles.postDate}>{formatRelativeDate(item.createdAt)}</Text>
-          <View style={styles.postAuthorInfo}>
+          <Pressable
+            style={styles.postAuthorInfo}
+            onPress={() => router.push(`/profile/${item.author.id}` as any)}
+            hitSlop={6}
+          >
             <Text style={styles.postAuthorName}>{item.author.name}</Text>
             <Text style={styles.postAuthorHandle}>@{item.author.username}</Text>
-          </View>
+          </Pressable>
         </View>
-        <Avatar author={item.author} size={38} />
+        <Pressable onPress={() => router.push(`/profile/${item.author.id}` as any)} hitSlop={6}>
+          <Avatar author={item.author} size={38} />
+        </Pressable>
       </View>
 
       {/* Content */}
