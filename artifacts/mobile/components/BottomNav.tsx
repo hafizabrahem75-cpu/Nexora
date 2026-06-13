@@ -7,7 +7,7 @@ import { useNotifications } from "@/context/NotificationsContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
 
-export type Tab = "home" | "tasks" | "goals" | "notes" | "notifications" | "messages" | "profile";
+export type Tab = "home" | "tasks" | "goals" | "notes" | "notifications" | "messages" | "profile" | "community";
 
 interface TabDef {
   key: Tab;
@@ -19,7 +19,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { key: "profile",       label: "الملف",      icon: "user",           route: "/profile"       },
   { key: "messages",      label: "الرسائل",    icon: "message-circle", route: "/conversations" },
-  { key: "notifications", label: "الإشعارات",  icon: "bell",           route: "/notifications" },
+  { key: "community",     label: "المجتمع",    icon: "users",          route: "/community"     },
   { key: "tasks",         label: "المهام",     icon: "check-square",   route: "/tasks"         },
   { key: "home",          label: "الرئيسية",   icon: "home",           route: "/home"          },
 ];

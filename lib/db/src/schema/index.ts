@@ -12,3 +12,4 @@ export * from "./notifications";
 export * from "./tasks";
 export * from "./goals";
 export * from "./notes";
+export * from "./community_posts";

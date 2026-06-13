@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import adminRouter from "./admin";
 import authRouter from "./auth";
+import communityRouter from "./community";
 import conversationsRouter from "./conversations";
 import friendsRouter from "./friends";
 import goalsRouter from "./goals";
@@ -24,5 +25,6 @@ router.use("/admin", adminRouter);
 router.use("/tasks", tasksRouter);
 router.use("/goals", goalsRouter);
 router.use("/notes", notesRouter);
+router.use("/community", communityRouter);
 
 export default router;

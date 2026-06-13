@@ -29396,27 +29396,27 @@ var require_router = __commonJS({
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
-    module.exports = Router13;
+    module.exports = Router14;
     module.exports.Route = Route;
-    function Router13(options) {
-      if (!(this instanceof Router13)) {
-        return new Router13(options);
+    function Router14(options) {
+      if (!(this instanceof Router14)) {
+        return new Router14(options);
       }
       const opts = options || {};
-      function router13(req, res, next) {
-        router13.handle(req, res, next);
+      function router14(req, res, next) {
+        router14.handle(req, res, next);
       }
-      Object.setPrototypeOf(router13, this);
-      router13.caseSensitive = opts.caseSensitive;
-      router13.mergeParams = opts.mergeParams;
-      router13.params = {};
-      router13.strict = opts.strict;
-      router13.stack = [];
-      return router13;
+      Object.setPrototypeOf(router14, this);
+      router14.caseSensitive = opts.caseSensitive;
+      router14.mergeParams = opts.mergeParams;
+      router14.params = {};
+      router14.strict = opts.strict;
+      router14.stack = [];
+      return router14;
     }
-    Router13.prototype = function() {
+    Router14.prototype = function() {
     };
-    Router13.prototype.param = function param(name, fn) {
+    Router14.prototype.param = function param(name, fn) {
       if (!name) {
         throw new TypeError("argument name is required");
       }
@@ -29436,7 +29436,7 @@ var require_router = __commonJS({
       params.push(fn);
       return this;
     };
-    Router13.prototype.handle = function handle(req, res, callback) {
+    Router14.prototype.handle = function handle(req, res, callback) {
       if (!callback) {
         throw new TypeError("argument callback is required");
       }
@@ -29563,7 +29563,7 @@ var require_router = __commonJS({
         }
       }
     };
-    Router13.prototype.use = function use(handler) {
+    Router14.prototype.use = function use(handler) {
       let offset = 0;
       let path = "/";
       if (typeof handler !== "function") {
@@ -29596,7 +29596,7 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router13.prototype.route = function route(path) {
+    Router14.prototype.route = function route(path) {
       const route2 = new Route(path);
       const layer = new Layer(path, {
         sensitive: this.caseSensitive,
@@ -29611,7 +29611,7 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router13.prototype[method] = function(path) {
+      Router14.prototype[method] = function(path) {
         const route = this.route(path);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
@@ -29794,13 +29794,13 @@ var require_application = __commonJS({
     var compileTrust = require_utils5().compileTrust;
     var resolve = __require("node:path").resolve;
     var once = require_once();
-    var Router13 = require_router();
+    var Router14 = require_router();
     var slice = Array.prototype.slice;
     var flatten = Array.prototype.flat;
     var app2 = exports = module.exports = {};
     var trustProxyDefaultSymbol = "@@symbol:trust_proxy_default";
     app2.init = function init() {
-      var router13 = null;
+      var router14 = null;
       this.cache = /* @__PURE__ */ Object.create(null);
       this.engines = /* @__PURE__ */ Object.create(null);
       this.settings = /* @__PURE__ */ Object.create(null);
@@ -29809,13 +29809,13 @@ var require_application = __commonJS({
         configurable: true,
         enumerable: true,
         get: function getrouter() {
-          if (router13 === null) {
-            router13 = new Router13({
+          if (router14 === null) {
+            router14 = new Router14({
               caseSensitive: this.enabled("case sensitive routing"),
               strict: this.enabled("strict routing")
             });
           }
-          return router13;
+          return router14;
         }
       });
     };
@@ -29886,15 +29886,15 @@ var require_application = __commonJS({
       if (fns.length === 0) {
         throw new TypeError("app.use() requires a middleware function");
       }
-      var router13 = this.router;
+      var router14 = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router13.use(path, fn2);
+          return router14.use(path, fn2);
         }
         debug(".use app under %s", path);
         fn2.mountpath = path;
         fn2.parent = this;
-        router13.use(path, function mounted_app(req, res, next) {
+        router14.use(path, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -32467,7 +32467,7 @@ var require_express = __commonJS({
     var EventEmitter = __require("node:events").EventEmitter;
     var mixin = require_merge_descriptors();
     var proto = require_application();
-    var Router13 = require_router();
+    var Router14 = require_router();
     var req = require_request();
     var res = require_response();
     exports = module.exports = createApplication;
@@ -32489,8 +32489,8 @@ var require_express = __commonJS({
     exports.application = proto;
     exports.request = req;
     exports.response = res;
-    exports.Route = Router13.Route;
-    exports.Router = Router13;
+    exports.Route = Router14.Route;
+    exports.Router = Router14;
     exports.json = bodyParser.json;
     exports.raw = bodyParser.raw;
     exports.static = require_serve_static();
@@ -46351,6 +46351,7 @@ function drizzle(...params) {
 // ../../lib/db/src/schema/index.ts
 var schema_exports = {};
 __export(schema_exports, {
+  communityPostsTable: () => communityPostsTable,
   conversationParticipantsTable: () => conversationParticipantsTable,
   conversationsTable: () => conversationsTable,
   emailVerificationTokensTable: () => emailVerificationTokensTable,
@@ -57944,6 +57945,20 @@ var notesTable = pgTable("notes", {
   index("notes_user_id_idx").on(t.userId)
 ]);
 
+// ../../lib/db/src/schema/community_posts.ts
+var communityPostsTable = pgTable("community_posts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  likesCount: integer("likes_count").notNull().default(0),
+  commentsCount: integer("comments_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+}, (t) => [
+  index("community_posts_user_id_idx").on(t.userId),
+  index("community_posts_created_at_idx").on(t.createdAt)
+]);
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -57968,7 +57983,7 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // src/app.ts
-var import_express13 = __toESM(require_express2(), 1);
+var import_express14 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib5(), 1);
 var import_pino_http = __toESM(require_logger(), 1);
 
@@ -58926,7 +58941,7 @@ var rateLimit = (passedOptions) => {
 var rate_limit_default = rateLimit;
 
 // src/routes/index.ts
-var import_express12 = __toESM(require_express2(), 1);
+var import_express13 = __toESM(require_express2(), 1);
 
 // src/routes/admin.ts
 var import_express = __toESM(require_express2(), 1);
@@ -61238,9 +61253,67 @@ router2.post("/verify-email", async (req, res) => {
 });
 var auth_default = router2;
 
-// src/routes/conversations.ts
+// src/routes/community.ts
 var import_express3 = __toESM(require_express2(), 1);
 var router3 = (0, import_express3.Router)();
+router3.get("/posts", requireAuth, async (req, res) => {
+  try {
+    const rows = await db.select({
+      id: communityPostsTable.id,
+      content: communityPostsTable.content,
+      likesCount: communityPostsTable.likesCount,
+      commentsCount: communityPostsTable.commentsCount,
+      createdAt: communityPostsTable.createdAt,
+      author: {
+        id: usersTable.id,
+        name: usersTable.name,
+        username: usersTable.username,
+        avatarColor: usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri
+      }
+    }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).orderBy(desc(communityPostsTable.createdAt)).limit(100);
+    res.json({ posts: rows });
+  } catch (err) {
+    req.log.error(err, "getCommunityPosts failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var CreateBody = external_exports.object({
+  content: external_exports.string().min(1).max(5e3)
+});
+router3.post("/posts", requireAuth, async (req, res) => {
+  const parsed = CreateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [inserted] = await db.insert(communityPostsTable).values({ userId: req.userId, content: parsed.data.content }).returning();
+    const post = {
+      id: inserted.id,
+      content: inserted.content,
+      likesCount: inserted.likesCount,
+      commentsCount: inserted.commentsCount,
+      createdAt: inserted.createdAt,
+      author: {
+        id: req.user.id,
+        name: req.user.name,
+        username: req.user.username,
+        avatarColor: req.user.avatarColor,
+        avatarImageUri: req.user.avatarImageUri ?? null
+      }
+    };
+    res.status(201).json({ post });
+  } catch (err) {
+    req.log.error(err, "createCommunityPost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var community_default = router3;
+
+// src/routes/conversations.ts
+var import_express4 = __toESM(require_express2(), 1);
+var router4 = (0, import_express4.Router)();
 function sortedPair(a, b) {
   return a < b ? [a, b] : [b, a];
 }
@@ -61251,7 +61324,7 @@ async function areFriends(a, b) {
   ).limit(1);
   return !!row;
 }
-router3.get("/", requireAuth, async (req, res) => {
+router4.get("/", requireAuth, async (req, res) => {
   const userId = req.userId;
   try {
     const participations = await db.select({
@@ -61328,7 +61401,7 @@ router3.get("/", requireAuth, async (req, res) => {
   }
 });
 var CreateConvBody = external_exports.object({ friendId: external_exports.string().uuid() });
-router3.post("/", requireAuth, async (req, res) => {
+router4.post("/", requireAuth, async (req, res) => {
   const parsed = CreateConvBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -61363,7 +61436,7 @@ router3.post("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router3.get("/:id/messages", requireAuth, async (req, res) => {
+router4.get("/:id/messages", requireAuth, async (req, res) => {
   const userId = req.userId;
   const id = req.params["id"];
   const beforeRaw = req.query["before"];
@@ -61409,7 +61482,7 @@ router3.get("/:id/messages", requireAuth, async (req, res) => {
 var SendMessageBody = external_exports.object({
   content: external_exports.string().min(1).max(4e3)
 });
-router3.post("/:id/messages", requireAuth, async (req, res) => {
+router4.post("/:id/messages", requireAuth, async (req, res) => {
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0644\u0627 \u064A\u0645\u0643\u0646 \u0623\u0646 \u062A\u0643\u0648\u0646 \u0641\u0627\u0631\u063A\u0629" });
@@ -61456,11 +61529,11 @@ router3.post("/:id/messages", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var conversations_default = router3;
+var conversations_default = router4;
 
 // src/routes/friends.ts
-var import_express4 = __toESM(require_express2(), 1);
-var router4 = (0, import_express4.Router)();
+var import_express5 = __toESM(require_express2(), 1);
+var router5 = (0, import_express5.Router)();
 function sortedPair2(a, b) {
   return a < b ? [a, b] : [b, a];
 }
@@ -61477,7 +61550,7 @@ async function areFriends2(a, b) {
 function safeUser(u) {
   return { id: u.id, name: u.name, username: u.username, avatarColor: u.avatarColor, avatarImageUri: u.avatarImageUri };
 }
-router4.get("/", requireAuth, async (req, res) => {
+router5.get("/", requireAuth, async (req, res) => {
   const userId = req.userId;
   try {
     const rows = await db.select({
@@ -61511,7 +61584,7 @@ router4.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router4.get("/requests", requireAuth, async (req, res) => {
+router5.get("/requests", requireAuth, async (req, res) => {
   const userId = req.userId;
   try {
     const requests = await db.select({
@@ -61551,7 +61624,7 @@ router4.get("/requests", requireAuth, async (req, res) => {
   }
 });
 var SendRequestBody = external_exports.object({ receiverId: external_exports.string().uuid() });
-router4.post("/request", requireAuth, async (req, res) => {
+router5.post("/request", requireAuth, async (req, res) => {
   const parsed = SendRequestBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -61593,7 +61666,7 @@ router4.post("/request", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router4.post("/accept/:requestId", requireAuth, async (req, res) => {
+router5.post("/accept/:requestId", requireAuth, async (req, res) => {
   const userId = req.userId;
   const requestId = req.params["requestId"];
   try {
@@ -61627,7 +61700,7 @@ router4.post("/accept/:requestId", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router4.post("/reject/:requestId", requireAuth, async (req, res) => {
+router5.post("/reject/:requestId", requireAuth, async (req, res) => {
   const userId = req.userId;
   const requestId = req.params["requestId"];
   try {
@@ -61649,7 +61722,7 @@ router4.post("/reject/:requestId", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router4.delete("/request/:requestId", requireAuth, async (req, res) => {
+router5.delete("/request/:requestId", requireAuth, async (req, res) => {
   const userId = req.userId;
   const requestId = req.params["requestId"];
   try {
@@ -61671,7 +61744,7 @@ router4.delete("/request/:requestId", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router4.delete("/:friendId", requireAuth, async (req, res) => {
+router5.delete("/:friendId", requireAuth, async (req, res) => {
   const userId = req.userId;
   const friendId = req.params["friendId"];
   const [u1, u2] = sortedPair2(userId, friendId);
@@ -61688,12 +61761,12 @@ router4.delete("/:friendId", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var friends_default = router4;
+var friends_default = router5;
 
 // src/routes/goals.ts
-var import_express5 = __toESM(require_express2(), 1);
-var router5 = (0, import_express5.Router)();
-router5.get("/", requireAuth, async (req, res) => {
+var import_express6 = __toESM(require_express2(), 1);
+var router6 = (0, import_express6.Router)();
+router6.get("/", requireAuth, async (req, res) => {
   try {
     const items = await db.select().from(goalsTable).where(eq(goalsTable.userId, req.userId)).orderBy(desc(goalsTable.createdAt));
     res.json({ goals: items });
@@ -61702,12 +61775,12 @@ router5.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody = external_exports.object({
+var CreateBody2 = external_exports.object({
   title: external_exports.string().min(1).max(500),
   reminderAt: external_exports.string().nullable().optional()
 });
-router5.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody.safeParse(req.body);
+router6.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody2.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -61729,7 +61802,7 @@ var UpdateBody = external_exports.object({
   completed: external_exports.boolean().optional(),
   reminderAt: external_exports.string().nullable().optional()
 });
-router5.patch("/:id", requireAuth, async (req, res) => {
+router6.patch("/:id", requireAuth, async (req, res) => {
   const parsed = UpdateBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -61753,7 +61826,7 @@ router5.patch("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router5.delete("/:id", requireAuth, async (req, res) => {
+router6.delete("/:id", requireAuth, async (req, res) => {
   try {
     const [deleted] = await db.delete(goalsTable).where(and(eq(goalsTable.id, req.params.id), eq(goalsTable.userId, req.userId))).returning({ id: goalsTable.id });
     if (!deleted) {
@@ -61766,10 +61839,10 @@ router5.delete("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var goals_default = router5;
+var goals_default = router6;
 
 // src/routes/health.ts
-var import_express6 = __toESM(require_express2(), 1);
+var import_express7 = __toESM(require_express2(), 1);
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
 var util;
@@ -65744,17 +65817,17 @@ var VerifyEmailResponse = objectType({
 });
 
 // src/routes/health.ts
-var router6 = (0, import_express6.Router)();
-router6.get("/healthz", (_req, res) => {
+var router7 = (0, import_express7.Router)();
+router7.get("/healthz", (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
 });
-var health_default = router6;
+var health_default = router7;
 
 // src/routes/notes.ts
-var import_express7 = __toESM(require_express2(), 1);
-var router7 = (0, import_express7.Router)();
-router7.get("/", requireAuth, async (req, res) => {
+var import_express8 = __toESM(require_express2(), 1);
+var router8 = (0, import_express8.Router)();
+router8.get("/", requireAuth, async (req, res) => {
   try {
     const items = await db.select().from(notesTable).where(eq(notesTable.userId, req.userId)).orderBy(desc(notesTable.createdAt));
     res.json({ notes: items });
@@ -65763,11 +65836,11 @@ router7.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody2 = external_exports.object({
+var CreateBody3 = external_exports.object({
   content: external_exports.string().min(1).max(1e4)
 });
-router7.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody2.safeParse(req.body);
+router8.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody3.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -65783,7 +65856,7 @@ router7.post("/", requireAuth, async (req, res) => {
 var UpdateBody2 = external_exports.object({
   content: external_exports.string().min(1).max(1e4)
 });
-router7.patch("/:id", requireAuth, async (req, res) => {
+router8.patch("/:id", requireAuth, async (req, res) => {
   const parsed = UpdateBody2.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -65801,7 +65874,7 @@ router7.patch("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router7.delete("/:id", requireAuth, async (req, res) => {
+router8.delete("/:id", requireAuth, async (req, res) => {
   try {
     const [deleted] = await db.delete(notesTable).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, req.userId))).returning({ id: notesTable.id });
     if (!deleted) {
@@ -65814,12 +65887,12 @@ router7.delete("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var notes_default = router7;
+var notes_default = router8;
 
 // src/routes/notifications.ts
-var import_express8 = __toESM(require_express2(), 1);
-var router8 = (0, import_express8.Router)();
-router8.get("/", requireAuth, async (req, res) => {
+var import_express9 = __toESM(require_express2(), 1);
+var router9 = (0, import_express9.Router)();
+router9.get("/", requireAuth, async (req, res) => {
   try {
     const items = await db.select().from(notificationsTable).where(eq(notificationsTable.userId, req.userId)).orderBy(desc(notificationsTable.createdAt)).limit(50);
     res.json({ notifications: items });
@@ -65828,7 +65901,7 @@ router8.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router8.get("/unread-count", requireAuth, async (req, res) => {
+router9.get("/unread-count", requireAuth, async (req, res) => {
   try {
     const [row] = await db.select({ count: count() }).from(notificationsTable).where(
       and(
@@ -65846,7 +65919,7 @@ var MarkReadBody = external_exports.union([
   external_exports.object({ all: external_exports.literal(true) }),
   external_exports.object({ ids: external_exports.array(external_exports.string().uuid()).min(1) })
 ]);
-router8.post("/mark-read", requireAuth, async (req, res) => {
+router9.post("/mark-read", requireAuth, async (req, res) => {
   const parsed = MarkReadBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -65869,17 +65942,17 @@ router8.post("/mark-read", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var notifications_default = router8;
+var notifications_default = router9;
 
 // src/routes/support.ts
-var import_express9 = __toESM(require_express2(), 1);
-var router9 = (0, import_express9.Router)();
+var import_express10 = __toESM(require_express2(), 1);
+var router10 = (0, import_express10.Router)();
 var SubmitBody = external_exports.object({
   type: external_exports.enum(["report", "help", "feature", "feedback"]),
   content: external_exports.string().min(1).max(5e3),
   screenshotUri: external_exports.string().nullable().optional()
 });
-router9.post("/", requireAuth, async (req, res) => {
+router10.post("/", requireAuth, async (req, res) => {
   const parsed = SubmitBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -65900,12 +65973,12 @@ router9.post("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var support_default = router9;
+var support_default = router10;
 
 // src/routes/tasks.ts
-var import_express10 = __toESM(require_express2(), 1);
-var router10 = (0, import_express10.Router)();
-router10.get("/", requireAuth, async (req, res) => {
+var import_express11 = __toESM(require_express2(), 1);
+var router11 = (0, import_express11.Router)();
+router11.get("/", requireAuth, async (req, res) => {
   try {
     const items = await db.select().from(tasksTable).where(eq(tasksTable.userId, req.userId)).orderBy(desc(tasksTable.createdAt));
     res.json({ tasks: items });
@@ -65914,12 +65987,12 @@ router10.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody3 = external_exports.object({
+var CreateBody4 = external_exports.object({
   title: external_exports.string().min(1).max(500),
   reminderAt: external_exports.string().nullable().optional()
 });
-router10.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody3.safeParse(req.body);
+router11.post("/", requireAuth, async (req, res) => {
+  const parsed = CreateBody4.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -65941,7 +66014,7 @@ var UpdateBody3 = external_exports.object({
   completed: external_exports.boolean().optional(),
   reminderAt: external_exports.string().nullable().optional()
 });
-router10.patch("/:id", requireAuth, async (req, res) => {
+router11.patch("/:id", requireAuth, async (req, res) => {
   const parsed = UpdateBody3.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -65965,7 +66038,7 @@ router10.patch("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router10.delete("/:id", requireAuth, async (req, res) => {
+router11.delete("/:id", requireAuth, async (req, res) => {
   try {
     const [deleted] = await db.delete(tasksTable).where(and(eq(tasksTable.id, req.params.id), eq(tasksTable.userId, req.userId))).returning({ id: tasksTable.id });
     if (!deleted) {
@@ -65978,11 +66051,11 @@ router10.delete("/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var tasks_default = router10;
+var tasks_default = router11;
 
 // src/routes/users.ts
-var import_express11 = __toESM(require_express2(), 1);
-var router11 = (0, import_express11.Router)();
+var import_express12 = __toESM(require_express2(), 1);
+var router12 = (0, import_express12.Router)();
 var USERNAME_RE2 = /^[a-z0-9_]{3,20}$/;
 function publicUser(u) {
   return {
@@ -65993,7 +66066,7 @@ function publicUser(u) {
     avatarImageUri: u.avatarImageUri
   };
 }
-router11.get("/check-username", async (req, res) => {
+router12.get("/check-username", async (req, res) => {
   const username = req.query["username"]?.toLowerCase().trim();
   if (!username || !USERNAME_RE2.test(username)) {
     res.status(400).json({ available: false, error: "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)" });
@@ -66005,7 +66078,7 @@ router11.get("/check-username", async (req, res) => {
 var SetUsernameBody = external_exports.object({
   username: external_exports.string().regex(USERNAME_RE2, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 3-20 \u062D\u0631\u0641\u064B\u0627 (\u0623\u062D\u0631\u0641 \u0625\u0646\u062C\u0644\u064A\u0632\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0648\u0623\u0631\u0642\u0627\u0645 \u0648_)")
 });
-router11.put("/username", requireAuth, async (req, res) => {
+router12.put("/username", requireAuth, async (req, res) => {
   const parsed = SetUsernameBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -66026,7 +66099,7 @@ router11.put("/username", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router11.get("/search", requireAuth, async (req, res) => {
+router12.get("/search", requireAuth, async (req, res) => {
   const q = req.query["q"]?.trim();
   if (!q || q.length < 2) {
     res.json({ users: [] });
@@ -66049,7 +66122,7 @@ router11.get("/search", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router11.get("/:username", requireAuth, async (req, res) => {
+router12.get("/:username", requireAuth, async (req, res) => {
   const username = req.params["username"];
   try {
     const [user] = await db.select({
@@ -66069,25 +66142,26 @@ router11.get("/:username", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var users_default = router11;
+var users_default = router12;
 
 // src/routes/index.ts
-var router12 = (0, import_express12.Router)();
-router12.use(health_default);
-router12.use("/auth", auth_default);
-router12.use("/users", users_default);
-router12.use("/friends", friends_default);
-router12.use("/conversations", conversations_default);
-router12.use("/support", support_default);
-router12.use("/notifications", notifications_default);
-router12.use("/admin", admin_default);
-router12.use("/tasks", tasks_default);
-router12.use("/goals", goals_default);
-router12.use("/notes", notes_default);
-var routes_default = router12;
+var router13 = (0, import_express13.Router)();
+router13.use(health_default);
+router13.use("/auth", auth_default);
+router13.use("/users", users_default);
+router13.use("/friends", friends_default);
+router13.use("/conversations", conversations_default);
+router13.use("/support", support_default);
+router13.use("/notifications", notifications_default);
+router13.use("/admin", admin_default);
+router13.use("/tasks", tasks_default);
+router13.use("/goals", goals_default);
+router13.use("/notes", notes_default);
+router13.use("/community", community_default);
+var routes_default = router13;
 
 // src/app.ts
-var app = (0, import_express13.default)();
+var app = (0, import_express14.default)();
 var authLimiter = rate_limit_default({
   windowMs: 15 * 60 * 1e3,
   max: 10,
@@ -66118,8 +66192,8 @@ app.use(
   })
 );
 app.use((0, import_cors.default)());
-app.use(import_express13.default.json());
-app.use(import_express13.default.urlencoded({ extended: true }));
+app.use(import_express14.default.json());
+app.use(import_express14.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
 var app_default = app;
 
