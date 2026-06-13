@@ -225,6 +225,38 @@ export default function HomeScreen() {
           )}
         </View>
 
+        {/* ── Nexora AI Banner ── */}
+        <Pressable
+          style={({ pressed }) => [styles.aiBanner, pressed && { opacity: 0.82, transform: [{ scale: 0.98 }] }]}
+          onPress={() => router.push("/nexora-ai" as any)}
+        >
+          <LinearGradient
+            colors={["#7C6EFA22", "#4F46E514"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.aiBannerLeft}>
+            <View style={styles.aiBannerIconWrap}>
+              <LinearGradient
+                colors={["#7C6EFA", "#4F46E5"]}
+                style={styles.aiBannerIconGrad}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Feather name="cpu" size={18} color="#FFFFFF" />
+              </LinearGradient>
+            </View>
+            <View style={styles.aiBannerText}>
+              <Text style={[styles.aiBannerTitle, { color: colors.text }]}>Nexora AI</Text>
+              <Text style={[styles.aiBannerSub, { color: colors.textSecondary }]}>حلّل هدفك واحصل على خطة ذكية</Text>
+            </View>
+          </View>
+          <View style={[styles.aiBannerArrow, { backgroundColor: "#7C6EFA22" }]}>
+            <Feather name="chevron-left" size={16} color="#7C6EFA" />
+          </View>
+        </Pressable>
+
         {/* ── Today's Summary ── */}
         <View style={styles.section}>
           <SectionHeader title="ملخص اليوم" accent={accent} icon="bar-chart-2" colors={colors} />
@@ -524,6 +556,22 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
     },
     progressTrack: { height: 6, borderRadius: DS.radius.pill, overflow: "hidden" },
     progressFill:  { height: "100%", borderRadius: DS.radius.pill, minWidth: 6 },
+
+    // Nexora AI banner
+    aiBanner: {
+      flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between",
+      borderRadius: DS.radius.xl, borderWidth: 1, borderColor: "#7C6EFA33",
+      paddingHorizontal: DS.spacing.lg, paddingVertical: DS.spacing.md,
+      marginBottom: DS.spacing.xxl, overflow: "hidden",
+      ...DS.shadow.sm,
+    },
+    aiBannerLeft:    { flexDirection: "row-reverse", alignItems: "center", gap: DS.spacing.sm, flex: 1 },
+    aiBannerIconWrap:{ borderRadius: DS.radius.md, overflow: "hidden" },
+    aiBannerIconGrad:{ width: 40, height: 40, borderRadius: DS.radius.md, alignItems: "center", justifyContent: "center" },
+    aiBannerText:    { gap: 2 },
+    aiBannerTitle:   { fontSize: DS.font.size.base, fontFamily: DS.font.family.bold, writingDirection: "rtl" },
+    aiBannerSub:     { fontSize: DS.font.size.xs, fontFamily: DS.font.family.regular, writingDirection: "rtl" },
+    aiBannerArrow:   { width: 30, height: 30, borderRadius: DS.radius.md, alignItems: "center", justifyContent: "center" },
 
     // Section
     section: { marginBottom: DS.spacing.xxl },

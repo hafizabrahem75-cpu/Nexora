@@ -54,6 +54,7 @@ function RootLayoutNav() {
       <Stack.Screen name="conversations" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="admin" />
+      <Stack.Screen name="nexora-ai" />
       <Stack.Screen name="chat/[id]" options={{ animation: "slide_from_left" }} />
     </Stack>
   );
