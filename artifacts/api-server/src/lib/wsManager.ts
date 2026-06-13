@@ -27,6 +27,15 @@ export const wsManager = {
     for (const uid of userIds) this.send(uid, data);
   },
 
+  broadcastAll(data: unknown) {
+    const payload = JSON.stringify(data);
+    for (const sockets of connections.values()) {
+      for (const ws of sockets) {
+        if (ws.readyState === 1) ws.send(payload);
+      }
+    }
+  },
+
   async notifyNewMessage(params: {
     recipientId: string;
     senderName: string;

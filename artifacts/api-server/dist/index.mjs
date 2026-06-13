@@ -42313,6 +42313,12 @@ function index(name) {
 }
 
 // ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.20.0/node_modules/drizzle-orm/pg-core/primary-keys.js
+function primaryKey(...config2) {
+  if (config2[0].columns) {
+    return new PrimaryKeyBuilder(config2[0].columns, config2[0].name);
+  }
+  return new PrimaryKeyBuilder(config2);
+}
 var PrimaryKeyBuilder = class {
   static [entityKind] = "PgPrimaryKeyBuilder";
   /** @internal */
@@ -42671,19 +42677,19 @@ function extractTablesRelationalConfig(schema, configHelpers) {
       const relations2 = value.config(
         configHelpers(value.table)
       );
-      let primaryKey;
+      let primaryKey2;
       for (const [relationName, relation] of Object.entries(relations2)) {
         if (tableName) {
           const tableConfig = tablesConfig[tableName];
           tableConfig.relations[relationName] = relation;
-          if (primaryKey) {
-            tableConfig.primaryKey.push(...primaryKey);
+          if (primaryKey2) {
+            tableConfig.primaryKey.push(...primaryKey2);
           }
         } else {
           if (!(dbName in relationsBuffer)) {
             relationsBuffer[dbName] = {
               relations: {},
-              primaryKey
+              primaryKey: primaryKey2
             };
           }
           relationsBuffer[dbName].relations[relationName] = relation;
@@ -46362,6 +46368,7 @@ __export(schema_exports, {
   notesTable: () => notesTable,
   notificationsTable: () => notificationsTable,
   passwordResetTokensTable: () => passwordResetTokensTable,
+  postLikesTable: () => postLikesTable,
   publicUserSchema: () => publicUserSchema,
   sessionsTable: () => sessionsTable,
   supportSubmissionsTable: () => supportSubmissionsTable,
@@ -57959,6 +57966,15 @@ var communityPostsTable = pgTable("community_posts", {
   index("community_posts_created_at_idx").on(t.createdAt)
 ]);
 
+// ../../lib/db/src/schema/post_likes.ts
+var postLikesTable = pgTable("post_likes", {
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  postId: uuid("post_id").notNull().references(() => communityPostsTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow()
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.postId] })
+]);
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -58982,6 +58998,14 @@ var wsManager = {
   },
   broadcast(userIds, data) {
     for (const uid of userIds) this.send(uid, data);
+  },
+  broadcastAll(data) {
+    const payload = JSON.stringify(data);
+    for (const sockets of connections.values()) {
+      for (const ws of sockets) {
+        if (ws.readyState === 1) ws.send(payload);
+      }
+    }
   },
   async notifyNewMessage(params) {
     try {
@@ -61272,7 +61296,19 @@ router3.get("/posts", requireAuth, async (req, res) => {
         avatarImageUri: usersTable.avatarImageUri
       }
     }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).orderBy(desc(communityPostsTable.createdAt)).limit(100);
-    res.json({ posts: rows });
+    let likedSet = /* @__PURE__ */ new Set();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(
+        and(
+          eq(postLikesTable.userId, req.userId),
+          inArray(postLikesTable.postId, postIds)
+        )
+      );
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    res.json({ posts });
   } catch (err) {
     req.log.error(err, "getCommunityPosts failed");
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
@@ -61295,6 +61331,7 @@ router3.post("/posts", requireAuth, async (req, res) => {
       likesCount: inserted.likesCount,
       commentsCount: inserted.commentsCount,
       createdAt: inserted.createdAt,
+      isLiked: false,
       author: {
         id: req.user.id,
         name: req.user.name,
@@ -61306,6 +61343,49 @@ router3.post("/posts", requireAuth, async (req, res) => {
     res.status(201).json({ post });
   } catch (err) {
     req.log.error(err, "createCommunityPost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.post("/posts/:id/like", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  try {
+    const inserted = await db.insert(postLikesTable).values({ userId: req.userId, postId }).onConflictDoNothing().returning();
+    if (inserted.length === 0) {
+      const [post] = await db.select({ likesCount: communityPostsTable.likesCount }).from(communityPostsTable).where(eq(communityPostsTable.id, postId));
+      res.json({ likesCount: post?.likesCount ?? 0 });
+      return;
+    }
+    const [updated] = await db.update(communityPostsTable).set({ likesCount: sql`${communityPostsTable.likesCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ likesCount: communityPostsTable.likesCount });
+    if (!updated) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+    res.json({ likesCount: updated.likesCount });
+  } catch (err) {
+    req.log.error(err, "likePost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.delete("/posts/:id/like", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  try {
+    const deleted = await db.delete(postLikesTable).where(
+      and(
+        eq(postLikesTable.userId, req.userId),
+        eq(postLikesTable.postId, postId)
+      )
+    ).returning();
+    if (deleted.length === 0) {
+      const [post] = await db.select({ likesCount: communityPostsTable.likesCount }).from(communityPostsTable).where(eq(communityPostsTable.id, postId));
+      res.json({ likesCount: post?.likesCount ?? 0 });
+      return;
+    }
+    const [updated] = await db.update(communityPostsTable).set({ likesCount: sql`GREATEST(${communityPostsTable.likesCount} - 1, 0)` }).where(eq(communityPostsTable.id, postId)).returning({ likesCount: communityPostsTable.likesCount });
+    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
+    res.json({ likesCount: updated?.likesCount ?? 0 });
+  } catch (err) {
+    req.log.error(err, "unlikePost failed");
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });

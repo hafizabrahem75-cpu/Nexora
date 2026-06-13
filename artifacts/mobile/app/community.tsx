@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
 import { apiFetch } from "@/lib/api";
+import { addWsListener } from "@/lib/ws";
 
 const COMMUNITY_COLOR = "#10B981";
 
@@ -39,6 +40,7 @@ interface Post {
   content: string;
   likesCount: number;
   commentsCount: number;
+  isLiked: boolean;
   createdAt: string;
   author: PostAuthor;
 }
@@ -93,16 +95,15 @@ function Avatar({ author, size = 38 }: { author: PostAuthor; size?: number }) {
 export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const top = Platform.OS === "web" ? 0 : insets.top;
-  const bottom = Platform.OS === "web" ? 0 : insets.bottom;
 
   const { token, user } = useAuth();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [posts, setPosts]           = useState<Post[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [posts, setPosts]               = useState<Post[]>([]);
+  const [loading, setLoading]           = useState(true);
   const [composerText, setComposerText] = useState("");
-  const [posting, setPosting]       = useState(false);
+  const [posting, setPosting]           = useState(false);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -117,6 +118,50 @@ export default function CommunityScreen() {
         .finally(() => setLoading(false));
     }, [token])
   );
+
+  // ── Real-time like updates via WebSocket ──────────────────────────────────
+  useEffect(() => {
+    const remove = addWsListener((event) => {
+      if (event.type !== "post_liked") return;
+      const { postId, likesCount } = event.payload as { postId: string; likesCount: number };
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likesCount } : p))
+      );
+    });
+    return remove;
+  }, []);
+
+  // ── Toggle like (optimistic) ───────────────────────────────────────────────
+  const toggleLike = useCallback(async (postId: string, isLiked: boolean) => {
+    if (!token) return;
+
+    // Optimistic update
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId
+          ? { ...p, isLiked: !isLiked, likesCount: p.likesCount + (isLiked ? -1 : 1) }
+          : p
+      )
+    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      if (isLiked) {
+        await apiFetch(`/community/posts/${postId}/like`, { method: "DELETE", token });
+      } else {
+        await apiFetch(`/community/posts/${postId}/like`, { method: "POST", token });
+      }
+    } catch {
+      // Revert on failure
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId
+            ? { ...p, isLiked, likesCount: p.likesCount + (isLiked ? 1 : -1) }
+            : p
+        )
+      );
+    }
+  }, [token]);
 
   // ── Create post ───────────────────────────────────────────────────────────
   const submitPost = async () => {
@@ -142,7 +187,7 @@ export default function CommunityScreen() {
   };
 
   // ── Post card ─────────────────────────────────────────────────────────────
-  const renderPost = ({ item }: { item: Post }) => (
+  const renderPost = useCallback(({ item }: { item: Post }) => (
     <View style={styles.postCard}>
       {/* Header */}
       <View style={styles.postHeader}>
@@ -159,19 +204,30 @@ export default function CommunityScreen() {
       {/* Content */}
       <Text style={styles.postContent}>{item.content}</Text>
 
-      {/* Footer — ready for likes & comments */}
+      {/* Footer */}
       <View style={styles.postFooter}>
         <View style={styles.postStat}>
           <Feather name="message-circle" size={14} color={colors.placeholder} />
           <Text style={styles.postStatText}>{item.commentsCount}</Text>
         </View>
-        <View style={styles.postStat}>
-          <Feather name="heart" size={14} color={colors.placeholder} />
-          <Text style={styles.postStatText}>{item.likesCount}</Text>
-        </View>
+
+        <Pressable
+          style={styles.postStat}
+          onPress={() => toggleLike(item.id, item.isLiked)}
+          hitSlop={8}
+        >
+          <Feather
+            name="heart"
+            size={14}
+            color={item.isLiked ? "#EF4444" : colors.placeholder}
+          />
+          <Text style={[styles.postStatText, item.isLiked && styles.postStatLiked]}>
+            {item.likesCount}
+          </Text>
+        </Pressable>
       </View>
     </View>
-  );
+  ), [styles, colors, toggleLike]);
 
   // ── Composer (list header) ────────────────────────────────────────────────
   const ListHeader = (
@@ -336,6 +392,7 @@ function makeStyles(colors: ThemeColors) {
     postFooter: { flexDirection: "row", gap: 16, paddingTop: 2 },
     postStat: { flexDirection: "row-reverse", alignItems: "center", gap: 5 },
     postStatText: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.placeholder },
+    postStatLiked: { color: "#EF4444" },
 
     // Empty state
     emptyWrap: { alignItems: "center", gap: 10, paddingBottom: 80 },

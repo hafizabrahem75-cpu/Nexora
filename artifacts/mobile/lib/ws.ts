@@ -9,7 +9,8 @@ export type WsEventType =
   | "message_read"
   | "friend_request"
   | "friend_accepted"
-  | "notification";
+  | "notification"
+  | "post_liked";
 
 export interface WsEvent {
   type: WsEventType;

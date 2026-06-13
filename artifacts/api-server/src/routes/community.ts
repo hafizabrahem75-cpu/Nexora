@@ -1,7 +1,8 @@
-import { db, communityPostsTable, usersTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { db, communityPostsTable, postLikesTable, usersTable } from "@workspace/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
+import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -29,7 +30,23 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    res.json({ posts: rows });
+    let likedSet = new Set<string>();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db
+        .select({ postId: postLikesTable.postId })
+        .from(postLikesTable)
+        .where(
+          and(
+            eq(postLikesTable.userId, req.userId!),
+            inArray(postLikesTable.postId, postIds),
+          ),
+        );
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    res.json({ posts });
   } catch (err) {
     req.log.error(err, "getCommunityPosts failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -59,6 +76,7 @@ router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
       likesCount:    inserted.likesCount,
       commentsCount: inserted.commentsCount,
       createdAt:     inserted.createdAt,
+      isLiked:       false,
       author: {
         id:             req.user!.id,
         name:           req.user!.name,
@@ -71,6 +89,81 @@ router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
     res.status(201).json({ post });
   } catch (err) {
     req.log.error(err, "createCommunityPost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── POST /community/posts/:id/like ──────────────────────────────────────────
+router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id;
+  try {
+    const inserted = await db
+      .insert(postLikesTable)
+      .values({ userId: req.userId!, postId })
+      .onConflictDoNothing()
+      .returning();
+
+    if (inserted.length === 0) {
+      const [post] = await db
+        .select({ likesCount: communityPostsTable.likesCount })
+        .from(communityPostsTable)
+        .where(eq(communityPostsTable.id, postId));
+      res.json({ likesCount: post?.likesCount ?? 0 });
+      return;
+    }
+
+    const [updated] = await db
+      .update(communityPostsTable)
+      .set({ likesCount: sql`${communityPostsTable.likesCount} + 1` })
+      .where(eq(communityPostsTable.id, postId))
+      .returning({ likesCount: communityPostsTable.likesCount });
+
+    if (!updated) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
+
+    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+    res.json({ likesCount: updated.likesCount });
+  } catch (err) {
+    req.log.error(err, "likePost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── DELETE /community/posts/:id/like ────────────────────────────────────────
+router.delete("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id;
+  try {
+    const deleted = await db
+      .delete(postLikesTable)
+      .where(
+        and(
+          eq(postLikesTable.userId, req.userId!),
+          eq(postLikesTable.postId, postId),
+        ),
+      )
+      .returning();
+
+    if (deleted.length === 0) {
+      const [post] = await db
+        .select({ likesCount: communityPostsTable.likesCount })
+        .from(communityPostsTable)
+        .where(eq(communityPostsTable.id, postId));
+      res.json({ likesCount: post?.likesCount ?? 0 });
+      return;
+    }
+
+    const [updated] = await db
+      .update(communityPostsTable)
+      .set({ likesCount: sql`GREATEST(${communityPostsTable.likesCount} - 1, 0)` })
+      .where(eq(communityPostsTable.id, postId))
+      .returning({ likesCount: communityPostsTable.likesCount });
+
+    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
+    res.json({ likesCount: updated?.likesCount ?? 0 });
+  } catch (err) {
+    req.log.error(err, "unlikePost failed");
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
