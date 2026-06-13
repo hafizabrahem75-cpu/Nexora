@@ -128,6 +128,50 @@ async function saveAiChatResult(result: AiChatResult): Promise<void> {
   await AsyncStorage.setItem(NEXORA_AI_TASKS_KEY, JSON.stringify([...newTasks, ...existing]));
 }
 
+// ─── Smart Reply Engine ──────────────────────────────────────────────────────────
+
+const SMART_REPLY_POOLS: Record<string, string[]> = {
+  question:     ["نعم، بالتأكيد", "لا، للأسف", "سأعود إليك بالإجابة قريباً"],
+  plan:         ["فكرة رائعة!", "موافق على الخطة 👍", "متى نبدأ؟"],
+  task:         ["سأتكفل بذلك", "تم الأخذ بالملاحظة", "سأعمل على ذلك اليوم"],
+  greeting:     ["أهلاً! كيف حالك؟", "مرحباً! بخير والحمدلله", "أهلاً وسهلاً 😊"],
+  thanks:       ["العفو 😊", "بكل سرور!", "لا شكر على واجب"],
+  confirmation: ["شكراً جزيلاً!", "ممتاز، شكراً", "عظيم! سأتابع ذلك"],
+  general:      ["👍", "شكراً", "حسناً، سأتابع الأمر"],
+};
+
+const SR_QUESTION   = /\?|؟|كيف|متى|أين|هل|ما |من |لماذا|ماذا|هل أنت|هل يمكن/;
+const SR_PLAN       = /نخطط|مشروع|هدف|اتفقنا|سنقوم|سنبدأ|خطة|نفكر في|ننوي|نريد أن/;
+const SR_TASK       = /يجب|ينبغي|اعمل|أرسل|ابعث|احجز|راجع|تواصل|حضّر|جهّز/;
+const SR_GREETING   = /مرحبا|أهلا|السلام|صباح|مساء|أهلاً|هاي|هاى|كيف حال/;
+const SR_THANKS     = /شكرا|شكراً|متشكر|ممنون|جزاك|بارك/;
+const SR_CONFIRM    = /تمام|موافق|اوكي|أوكي|حسناً|بالتأكيد|صحيح|رائع|ممتاز/;
+
+function generateSmartReplies(
+  messages: { id: string; senderId: string; content: string }[],
+  myId: string | undefined,
+): string[] {
+  if (!messages.length) return [];
+
+  // Find the last message from the other person
+  const lastOther = [...messages].reverse().find((m) => m.senderId !== myId);
+  if (!lastOther) return [];
+
+  const body = lastOther.content;
+
+  let category = "general";
+  if (SR_GREETING.test(body))   category = "greeting";
+  else if (SR_THANKS.test(body)) category = "thanks";
+  else if (SR_CONFIRM.test(body)) category = "confirmation";
+  else if (SR_QUESTION.test(body)) category = "question";
+  else if (SR_PLAN.test(body))   category = "plan";
+  else if (SR_TASK.test(body))   category = "task";
+
+  const pool = SMART_REPLY_POOLS[category] ?? SMART_REPLY_POOLS.general!;
+  // Always return exactly 3 (or all if fewer)
+  return pool.slice(0, 3);
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────────
 
 interface ChatMessage {
@@ -220,6 +264,9 @@ export default function ChatScreen() {
   const [aiResult, setAiResult]   = useState<AiChatResult | null>(null);
   const [aiSaved, setAiSaved]     = useState(false);
 
+  // Smart Reply state
+  const [smartReplies, setSmartReplies] = useState<string[]>([]);
+
   const scrollBottom = (animated = true) =>
     setTimeout(() => flatRef.current?.scrollToEnd({ animated }), 50);
 
@@ -262,6 +309,11 @@ export default function ChatScreen() {
       }
     });
   }, [id, user?.id]);
+
+  // Refresh smart replies whenever messages change
+  useEffect(() => {
+    setSmartReplies(generateSmartReplies(messages, user?.id));
+  }, [messages, user?.id]);
 
   const send = async () => {
     const content = text.trim();
@@ -414,6 +466,27 @@ export default function ChatScreen() {
             </View>
           }
         />
+      )}
+
+      {/* ── Smart Reply chips (hidden while typing) ── */}
+      {smartReplies.length > 0 && text.length === 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.srRow}
+          contentContainerStyle={styles.srRowContent}
+        >
+          {smartReplies.map((reply, i) => (
+            <Pressable
+              key={i}
+              style={({ pressed }) => [styles.srChip, pressed && { opacity: 0.7 }]}
+              onPress={() => setText(reply)}
+            >
+              <Feather name="zap" size={11} color={AI_PURPLE} style={styles.srChipIcon} />
+              <Text style={styles.srChipText}>{reply}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
       <View style={[styles.inputBar, { paddingBottom: bottom + 10 }]}>
@@ -679,6 +752,21 @@ function makeStyles(colors: ThemeColors) {
     emptyChatInitial: { fontSize: 28, fontFamily: "Inter_700Bold" },
     emptyChatTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", color: colors.text, writingDirection: "rtl" },
     emptyChatSub: { fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textSecondary, writingDirection: "rtl", textAlign: "center" },
+
+    // ── Smart Reply chips ──
+    srRow: { flexShrink: 0, borderTopWidth: 1, borderTopColor: colors.border },
+    srRowContent: { flexDirection: "row-reverse", paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+    srChip: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 5,
+      backgroundColor: colors.card,
+      borderWidth: 1, borderColor: "#7C6EFA33",
+      borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7,
+    },
+    srChipIcon: { marginLeft: 2 },
+    srChipText: {
+      fontSize: 13, fontFamily: "Inter_500Medium",
+      color: colors.text, writingDirection: "rtl",
+    },
 
     // ── AI button ──
     aiBtn: {
