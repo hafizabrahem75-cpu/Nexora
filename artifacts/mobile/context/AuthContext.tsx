@@ -32,6 +32,7 @@ export interface PublicUser {
   emailVerified: boolean;
   profileVisibility: string;
   messagingPrivacy: string;
+  isDeveloper: boolean;
   createdAt: string;
   updatedAt: string;
 }

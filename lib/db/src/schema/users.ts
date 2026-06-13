@@ -13,6 +13,7 @@ export const usersTable = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   profileVisibility: text("profile_visibility").notNull().default("everyone"),
   messagingPrivacy: text("messaging_privacy").notNull().default("everyone"),
+  isDeveloper: boolean("is_developer").notNull().default(false),
   suspendedAt: timestamp("suspended_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

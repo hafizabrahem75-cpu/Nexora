@@ -33,11 +33,16 @@ function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 interface Stats {
   users: number;
-  friendships: number;
+  tasks: number;
+  goals: number;
+  notes: number;
   conversations: number;
+  friendships: number;
   messages: number;
   supportSubmissions: number;
 }
+
+type ServerStatus = "checking" | "online" | "offline";
 
 interface AdminUser {
   id: string;
@@ -83,33 +88,47 @@ export default function AdminScreen() {
   const { accent } = useSettings();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabKey>("stats");
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>("checking");
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketFilter, setTicketFilter] = useState("");
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [users2, setUsers2] = useState<AdminUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [announceTitle, setAnnounceTitle] = useState("");
   const [announceBody, setAnnounceBody] = useState("");
   const [announcing, setAnnouncing] = useState(false);
 
+  const isDev = !!user?.isDeveloper;
+
   useEffect(() => {
-    if (!ADMIN_SECRET) { router.replace("/settings" as any); }
+    if (!isDev) { router.replace("/settings" as any); }
+  }, [isDev]);
+
+  const checkServerStatus = useCallback(async () => {
+    setServerStatus("checking");
+    try {
+      await adminFetch("/healthz");
+      setServerStatus("online");
+    } catch {
+      setServerStatus("offline");
+    }
   }, []);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
+    checkServerStatus();
     try {
       const data = await adminFetch<Stats>("/admin/stats");
       setStats(data);
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل الإحصاءات");
     } finally { setStatsLoading(false); }
-  }, []);
+  }, [checkServerStatus]);
 
   const loadTickets = useCallback(async (typeFilter = ticketFilter) => {
     setTicketsLoading(true);
@@ -126,23 +145,23 @@ export default function AdminScreen() {
     setUsersLoading(true);
     try {
       const data = await adminFetch<{ users: AdminUser[] }>("/admin/users");
-      setUsers(data.users);
+      setUsers2(data.users);
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل المستخدمين");
     } finally { setUsersLoading(false); }
   }, []);
 
   useEffect(() => {
-    if (!ADMIN_SECRET) return;
+    if (!isDev) return;
     if (activeTab === "stats") loadStats();
     else if (activeTab === "tickets") loadTickets();
     else if (activeTab === "users") loadUsers();
-  }, [activeTab]);
+  }, [activeTab, isDev]);
 
   const suspendUser = async (id: string, suspend: boolean) => {
     try {
       await adminFetch(`/admin/users/${id}/${suspend ? "suspend" : "unsuspend"}`, { method: "PATCH" });
-      setUsers((prev) => prev.map((u) => u.id === id ? { ...u, suspendedAt: suspend ? new Date().toISOString() : null } : u));
+      setUsers2((prev) => prev.map((u) => u.id === id ? { ...u, suspendedAt: suspend ? new Date().toISOString() : null } : u));
     } catch (e: any) { Alert.alert("خطأ", e?.message ?? "فشلت العملية"); }
   };
 
@@ -152,7 +171,7 @@ export default function AdminScreen() {
       { text: "حذف", style: "destructive", onPress: async () => {
         try {
           await adminFetch(`/admin/users/${id}`, { method: "DELETE" });
-          setUsers((prev) => prev.filter((u) => u.id !== id));
+          setUsers2((prev) => prev.filter((u) => u.id !== id));
         } catch (e: any) { Alert.alert("خطأ", e?.message ?? "فشل الحذف"); }
       }},
     ]);
@@ -186,7 +205,7 @@ export default function AdminScreen() {
     } finally { setAnnouncing(false); }
   };
 
-  if (!ADMIN_SECRET) return null;
+  if (!isDev) return null;
 
   return (
     <View style={[styles.root, { paddingTop: top }]}>
@@ -195,8 +214,8 @@ export default function AdminScreen() {
           <Feather name="arrow-right" size={20} color={colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>لوحة المطور</Text>
-        <View style={[styles.badge, { backgroundColor: accent + "22" }]}>
-          <Text style={[styles.badgeText, { color: accent }]}>ADMIN</Text>
+        <View style={[styles.badge, { backgroundColor: "#34D39922" }]}>
+          <Text style={[styles.badgeText, { color: "#34D399" }]}>DEV</Text>
         </View>
       </View>
 
@@ -218,16 +237,38 @@ export default function AdminScreen() {
 
       {activeTab === "stats" && (
         <ScrollView contentContainerStyle={styles.content}>
-          {statsLoading ? (
+          {/* Server status */}
+          <View style={[styles.serverCard, {
+            borderColor: serverStatus === "online" ? "#34D39944" : serverStatus === "offline" ? "#FF453A44" : colors.border,
+          }]}>
+            <View style={[styles.serverDot, {
+              backgroundColor: serverStatus === "online" ? "#34D399" : serverStatus === "offline" ? "#FF453A" : colors.textTertiary,
+            }]} />
+            <Text style={[styles.serverLabel, { color: colors.textSecondary }]}>الخادم:</Text>
+            <Text style={[styles.serverStatus, {
+              color: serverStatus === "online" ? "#34D399" : serverStatus === "offline" ? "#FF453A" : colors.textSecondary,
+            }]}>
+              {serverStatus === "online" ? "متصل ✓" : serverStatus === "offline" ? "غير متصل ✗" : "جارٍ الفحص..."}
+            </Text>
+            <Pressable style={styles.refreshSmallBtn} onPress={() => { loadStats(); }} disabled={statsLoading}>
+              {statsLoading
+                ? <ActivityIndicator size="small" color={accent} />
+                : <Feather name="refresh-cw" size={14} color={accent} />}
+            </Pressable>
+          </View>
+
+          {statsLoading && !stats ? (
             <ActivityIndicator size="large" color={accent} style={{ marginTop: 40 }} />
           ) : stats ? (
             <View style={styles.statsGrid}>
               {[
-                { label: "المستخدمون", value: stats.users, icon: "users" as const, color: accent },
-                { label: "الصداقات", value: stats.friendships, icon: "heart" as const, color: "#34D399" },
-                { label: "المحادثات", value: stats.conversations, icon: "message-circle" as const, color: "#3B82F6" },
-                { label: "الرسائل", value: stats.messages, icon: "send" as const, color: "#F59E0B" },
-                { label: "التذاكر", value: stats.supportSubmissions, icon: "inbox" as const, color: "#EF4444" },
+                { label: "المستخدمون", value: stats.users,             icon: "users"          as const, color: accent    },
+                { label: "المهام",     value: stats.tasks,             icon: "check-square"   as const, color: "#34D399" },
+                { label: "الأهداف",   value: stats.goals,             icon: "target"         as const, color: "#F59E0B" },
+                { label: "الملاحظات", value: stats.notes,             icon: "file-text"      as const, color: "#3B82F6" },
+                { label: "المحادثات", value: stats.conversations,     icon: "message-circle" as const, color: "#EC4899" },
+                { label: "الرسائل",   value: stats.messages,          icon: "send"           as const, color: "#22D3EE" },
+                { label: "التذاكر",   value: stats.supportSubmissions, icon: "inbox"          as const, color: "#EF4444" },
               ].map((s) => (
                 <View key={s.label} style={[styles.statCard, { borderColor: s.color + "33" }]}>
                   <View style={[styles.statIcon, { backgroundColor: s.color + "22" }]}>
@@ -300,7 +341,7 @@ export default function AdminScreen() {
             <ActivityIndicator size="large" color={accent} style={{ marginTop: 40 }} />
           ) : (
             <FlatList
-              data={users}
+              data={users2}
               keyExtractor={(u) => u.id}
               contentContainerStyle={styles.content}
               onRefresh={loadUsers}
@@ -414,6 +455,16 @@ function makeStyles(colors: ThemeColors) {
     statIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
     statValue: { fontSize: 28, fontFamily: "Inter_700Bold" },
     statLabel: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.textSecondary },
+
+    serverCard: {
+      flexDirection: "row", alignItems: "center", gap: 8,
+      backgroundColor: colors.card, borderRadius: 12, borderWidth: 1,
+      paddingHorizontal: 14, paddingVertical: 10, marginBottom: 4,
+    },
+    serverDot:    { width: 8, height: 8, borderRadius: 4 },
+    serverLabel:  { fontSize: 13, fontFamily: "Inter_500Medium" },
+    serverStatus: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold", textAlign: "right" },
+    refreshSmallBtn: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
 
     reloadBtn: {
       marginTop: 40, alignSelf: "center", paddingHorizontal: 24, paddingVertical: 12,

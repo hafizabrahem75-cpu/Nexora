@@ -521,7 +521,7 @@ export default function SettingsScreen() {
           <SettingRow colors={colors} icon="star" iconColor="#F59E0B" iconBg="#F59E0B22" label={t.settings.suggestFeature} onPress={() => openSupport("feature")} />
         </View>
 
-        {!!process.env.EXPO_PUBLIC_ADMIN_SECRET && (
+        {!!user?.isDeveloper && (
           <>
             <SectionHeader title="المطور" colors={colors} />
             <View style={styles.card}>

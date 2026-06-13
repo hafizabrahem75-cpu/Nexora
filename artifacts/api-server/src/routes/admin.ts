@@ -3,9 +3,12 @@ import {
   conversationParticipantsTable,
   conversationsTable,
   friendshipsTable,
+  goalsTable,
   messagesTable,
+  notesTable,
   notificationsTable,
   supportSubmissionsTable,
+  tasksTable,
   usersTable,
 } from "@workspace/db";
 import { count, desc, eq } from "drizzle-orm";
@@ -23,22 +26,31 @@ router.get("/stats", async (_req, res) => {
   try {
     const [
       [usersRow],
-      [friendshipsRow],
+      [tasksRow],
+      [goalsRow],
+      [notesRow],
       [conversationsRow],
+      [friendshipsRow],
       [messagesRow],
       [supportRow],
     ] = await Promise.all([
       db.select({ count: count() }).from(usersTable),
-      db.select({ count: count() }).from(friendshipsTable),
+      db.select({ count: count() }).from(tasksTable),
+      db.select({ count: count() }).from(goalsTable),
+      db.select({ count: count() }).from(notesTable),
       db.select({ count: count() }).from(conversationsTable),
+      db.select({ count: count() }).from(friendshipsTable),
       db.select({ count: count() }).from(messagesTable),
       db.select({ count: count() }).from(supportSubmissionsTable),
     ]);
 
     res.json({
       users: Number(usersRow?.count ?? 0),
-      friendships: Number(friendshipsRow?.count ?? 0),
+      tasks: Number(tasksRow?.count ?? 0),
+      goals: Number(goalsRow?.count ?? 0),
+      notes: Number(notesRow?.count ?? 0),
       conversations: Number(conversationsRow?.count ?? 0),
+      friendships: Number(friendshipsRow?.count ?? 0),
       messages: Number(messagesRow?.count ?? 0),
       supportSubmissions: Number(supportRow?.count ?? 0),
     });
