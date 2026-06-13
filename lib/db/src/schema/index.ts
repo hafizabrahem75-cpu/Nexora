@@ -15,3 +15,4 @@ export * from "./notes";
 export * from "./community_posts";
 export * from "./post_likes";
 export * from "./post_comments";
+export * from "./follows";

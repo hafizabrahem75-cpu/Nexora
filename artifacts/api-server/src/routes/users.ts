@@ -1,4 +1,4 @@
-import { db, communityPostsTable, friendshipsTable, postLikesTable, usersTable } from "@workspace/db";
+import { db, communityPostsTable, followsTable, friendshipsTable, postLikesTable, usersTable } from "@workspace/db";
 import { and, count, eq, ilike, inArray, or } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
@@ -128,23 +128,29 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
-    const [[postsRow], [friendsRow]] = await Promise.all([
-      db
-        .select({ value: count() })
-        .from(communityPostsTable)
-        .where(eq(communityPostsTable.userId, userId)),
-      db
-        .select({ value: count() })
-        .from(friendshipsTable)
-        .where(or(eq(friendshipsTable.userId1, userId), eq(friendshipsTable.userId2, userId))),
-    ]);
+    const [[postsRow], [friendsRow], [followersRow], [followingRow], isFollowingRow] =
+      await Promise.all([
+        db.select({ value: count() }).from(communityPostsTable)
+          .where(eq(communityPostsTable.userId, userId)),
+        db.select({ value: count() }).from(friendshipsTable)
+          .where(or(eq(friendshipsTable.userId1, userId), eq(friendshipsTable.userId2, userId))),
+        db.select({ value: count() }).from(followsTable)
+          .where(eq(followsTable.followeeId, userId)),
+        db.select({ value: count() }).from(followsTable)
+          .where(eq(followsTable.followerId, userId)),
+        db.select({ id: followsTable.id }).from(followsTable)
+          .where(and(eq(followsTable.followerId, req.userId!), eq(followsTable.followeeId, userId)))
+          .limit(1),
+      ]);
 
     res.json({
       user,
       stats: {
         postsCount:     postsRow?.value ?? 0,
         friendsCount:   friendsRow?.value ?? 0,
-        followersCount: 0,
+        followersCount: followersRow?.value ?? 0,
+        followingCount: followingRow?.value ?? 0,
+        isFollowing:    isFollowingRow.length > 0,
       },
     });
   } catch (err) {

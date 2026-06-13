@@ -32,6 +32,8 @@ interface ProfileStats {
   postsCount: number;
   friendsCount: number;
   followersCount: number;
+  followingCount: number;
+  isFollowing: boolean;
 }
 
 interface PostAuthor {
@@ -106,13 +108,7 @@ function UserAvatar({
         justifyContent: "center",
       }}
     >
-      <Text
-        style={{
-          fontSize: size * 0.38,
-          fontFamily: "Inter_700Bold",
-          color: "#FFFFFF",
-        }}
-      >
+      <Text style={{ fontSize: size * 0.38, fontFamily: "Inter_700Bold", color: "#FFFFFF" }}>
         {initials(name)}
       </Text>
     </View>
@@ -131,13 +127,18 @@ export default function PublicProfileScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
-  const [stats, setStats] = useState<ProfileStats | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [profileUser, setProfileUser]   = useState<ProfileUser | null>(null);
+  const [stats, setStats]               = useState<ProfileStats | null>(null);
+  const [posts, setPosts]               = useState<Post[]>([]);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [loadingPosts, setLoadingPosts] = useState(true);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
+  const [loadingPosts, setLoadingPosts]     = useState(true);
+  const [chatLoading, setChatLoading]       = useState(false);
+  const [chatError, setChatError]           = useState<string | null>(null);
+
+  // Follow state — managed separately for optimistic updates
+  const [isFollowing, setIsFollowing]       = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followLoading, setFollowLoading]   = useState(false);
 
   const isOwnProfile = me?.id === userId;
 
@@ -148,6 +149,8 @@ export default function PublicProfileScreen() {
       .then(({ user, stats: s }) => {
         setProfileUser(user);
         setStats(s);
+        setIsFollowing(s.isFollowing);
+        setFollowersCount(s.followersCount);
       })
       .catch(() => {})
       .finally(() => setLoadingProfile(false));
@@ -178,6 +181,27 @@ export default function PublicProfileScreen() {
       setChatLoading(false);
     }
   }, [token, userId]);
+
+  const toggleFollow = useCallback(async () => {
+    if (!token || !userId || followLoading) return;
+    const nextFollowing = !isFollowing;
+    // optimistic update
+    setIsFollowing(nextFollowing);
+    setFollowersCount((prev) => prev + (nextFollowing ? 1 : -1));
+    setFollowLoading(true);
+    try {
+      await apiFetch(`/follows/${userId}`, {
+        method: nextFollowing ? "POST" : "DELETE",
+        token,
+      });
+    } catch {
+      // rollback
+      setIsFollowing(!nextFollowing);
+      setFollowersCount((prev) => prev + (nextFollowing ? -1 : 1));
+    } finally {
+      setFollowLoading(false);
+    }
+  }, [token, userId, isFollowing, followLoading]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => (
@@ -247,15 +271,50 @@ export default function PublicProfileScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statChip}>
-              <Text style={[styles.statValue, { color: accent }]}>{stats.followersCount}</Text>
+              <Text style={[styles.statValue, { color: accent }]}>{followersCount}</Text>
               <Text style={styles.statLabel}>متابع</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statChip}>
+              <Text style={[styles.statValue, { color: accent }]}>{stats.followingCount}</Text>
+              <Text style={styles.statLabel}>يتابع</Text>
             </View>
           </View>
         )}
 
-        {/* Chat button */}
+        {/* Action buttons */}
         {!isOwnProfile && (
           <View style={styles.actionsRow}>
+            {/* Follow / Following */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.followBtn,
+                isFollowing
+                  ? [styles.followBtnFollowing, { borderColor: accent }]
+                  : { backgroundColor: accent },
+                pressed && { opacity: 0.75 },
+                followLoading && { opacity: 0.6 },
+              ]}
+              onPress={toggleFollow}
+              disabled={followLoading}
+            >
+              {followLoading ? (
+                <ActivityIndicator size="small" color={isFollowing ? accent : "#fff"} />
+              ) : (
+                <>
+                  <Feather
+                    name={isFollowing ? "user-check" : "user-plus"}
+                    size={14}
+                    color={isFollowing ? accent : "#fff"}
+                  />
+                  <Text style={[styles.followBtnText, isFollowing && { color: accent }]}>
+                    {isFollowing ? "تتابعه" : "متابعة"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            {/* Message */}
             <Pressable
               style={({ pressed }) => [
                 styles.chatBtn,
@@ -270,7 +329,7 @@ export default function PublicProfileScreen() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Feather name="message-circle" size={15} color="#fff" />
+                  <Feather name="message-circle" size={14} color="#fff" />
                   <Text style={styles.chatBtnText}>مراسلة</Text>
                 </>
               )}
@@ -278,9 +337,7 @@ export default function PublicProfileScreen() {
           </View>
         )}
 
-        {chatError ? (
-          <Text style={styles.chatError}>{chatError}</Text>
-        ) : null}
+        {chatError ? <Text style={styles.chatError}>{chatError}</Text> : null}
 
         {/* Posts section header */}
         <View style={styles.postsSectionHeader}>
@@ -288,7 +345,13 @@ export default function PublicProfileScreen() {
         </View>
       </View>
     );
-  }, [loadingProfile, profileUser, stats, styles, colors, accent, isOwnProfile, chatLoading, chatError, openChat]);
+  }, [
+    loadingProfile, profileUser, stats, followersCount,
+    styles, colors, accent,
+    isOwnProfile,
+    isFollowing, followLoading, toggleFollow,
+    chatLoading, chatError, openChat,
+  ]);
 
   if (loadingProfile) {
     return (
@@ -430,23 +493,15 @@ function makeStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
       paddingVertical: 14,
-      paddingHorizontal: 24,
-      gap: 0,
+      paddingHorizontal: 16,
       marginTop: 10,
       alignSelf: "stretch",
     },
     statChip: { flex: 1, alignItems: "center", gap: 2 },
-    statDivider: {
-      width: 1,
-      height: 30,
-      backgroundColor: colors.border,
-    },
-    statValue: {
-      fontSize: 20,
-      fontFamily: "Inter_700Bold",
-    },
+    statDivider: { width: 1, height: 30, backgroundColor: colors.border },
+    statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
     statLabel: {
-      fontSize: 11,
+      fontSize: 10,
       fontFamily: "Inter_400Regular",
       color: colors.textTertiary,
       writingDirection: "rtl",
@@ -458,14 +513,36 @@ function makeStyles(colors: ThemeColors) {
       gap: 10,
       alignSelf: "stretch",
     },
+
+    followBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      borderRadius: 14,
+      paddingVertical: 11,
+      borderWidth: 1.5,
+      borderColor: "transparent",
+    },
+    followBtnFollowing: {
+      backgroundColor: "transparent",
+    },
+    followBtnText: {
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+      color: "#FFFFFF",
+      writingDirection: "rtl",
+    },
+
     chatBtn: {
       flex: 1,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 7,
+      gap: 6,
       borderRadius: 14,
-      paddingVertical: 12,
+      paddingVertical: 11,
     },
     chatBtnText: {
       fontSize: 14,
@@ -508,10 +585,7 @@ function makeStyles(colors: ThemeColors) {
       marginHorizontal: 16,
       marginBottom: 10,
     },
-    postHeader: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-    },
+    postHeader: { flexDirection: "row", justifyContent: "flex-end" },
     postDate: {
       fontSize: 11,
       fontFamily: "Inter_400Regular",
@@ -526,21 +600,9 @@ function makeStyles(colors: ThemeColors) {
       lineHeight: 22,
       textAlign: "right",
     },
-    postFooter: {
-      flexDirection: "row",
-      gap: 14,
-      paddingTop: 2,
-    },
-    postStat: {
-      flexDirection: "row-reverse",
-      alignItems: "center",
-      gap: 4,
-    },
-    postStatText: {
-      fontSize: 12,
-      fontFamily: "Inter_500Medium",
-      color: colors.placeholder,
-    },
+    postFooter: { flexDirection: "row", gap: 14, paddingTop: 2 },
+    postStat: { flexDirection: "row-reverse", alignItems: "center", gap: 4 },
+    postStatText: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.placeholder },
 
     postsLoader: { paddingVertical: 32, alignItems: "center" },
     postsEmpty: { paddingVertical: 32, alignItems: "center" },
