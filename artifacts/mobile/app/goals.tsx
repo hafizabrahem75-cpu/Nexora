@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -29,7 +30,39 @@ import {
 } from "@/utils/notifications";
 
 const NOTIF_KEY = "@nexora_goal_notif_ids";
+const AI_TASKS_KEY = "@nexora_ai_saved_tasks";
+const AI_GOAL_CONVERSIONS_KEY = "@nexora_ai_goal_conversions";
 const GOAL_ACCENT = "#34D399";
+const AI_PURPLE = "#7C6EFA";
+
+interface AiSavedTask {
+  id: string;
+  title: string;
+  goalLabel: string;
+  createdAt: string;
+}
+
+interface AiPlanGroup {
+  goalLabel: string;
+  tasks: AiSavedTask[];
+  createdAt: string;
+  alreadyConverted: boolean;
+}
+
+async function loadAiGoalConversions(): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(AI_GOAL_CONVERSIONS_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveAiGoalConversions(set: Set<string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AI_GOAL_CONVERSIONS_KEY, JSON.stringify([...set]));
+  } catch {}
+}
 
 interface ApiGoal {
   id: string;
@@ -98,6 +131,11 @@ export default function GoalsScreen() {
   const inputRef = useRef<TextInput>(null);
   const notifMapRef = useRef<Record<string, string>>({});
 
+  const [aiPlans, setAiPlans] = useState<AiPlanGroup[]>([]);
+  const [aiConverting, setAiConverting] = useState<Set<string>>(new Set());
+  const [aiSuccessLabel, setAiSuccessLabel] = useState("");
+  const [aiShowSuccess, setAiShowSuccess] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
@@ -105,15 +143,79 @@ export default function GoalsScreen() {
       Promise.all([
         apiFetch<{ goals: ApiGoal[] }>("/goals", { token }),
         loadNotifMap(),
+        AsyncStorage.getItem(AI_TASKS_KEY),
+        loadAiGoalConversions(),
       ])
-        .then(([{ goals: raw }, notifMap]) => {
+        .then(([{ goals: raw }, notifMap, aiRaw, conversions]) => {
           notifMapRef.current = notifMap;
           setGoals(raw.map((g) => fromApi(g, notifMap)));
+
+          const allTasks: AiSavedTask[] = aiRaw ? JSON.parse(aiRaw) : [];
+          const groupMap = new Map<string, AiSavedTask[]>();
+          for (const t of allTasks) {
+            const label = t.goalLabel ?? "هدف AI";
+            if (!groupMap.has(label)) groupMap.set(label, []);
+            groupMap.get(label)!.push(t);
+          }
+          const plans: AiPlanGroup[] = [];
+          groupMap.forEach((tasks, goalLabel) => {
+            plans.push({
+              goalLabel,
+              tasks,
+              createdAt: tasks[0]?.createdAt ?? new Date().toISOString(),
+              alreadyConverted: conversions.has(goalLabel),
+            });
+          });
+          setAiPlans(plans);
         })
         .catch(() => {})
         .finally(() => setLoading(false));
     }, [token])
   );
+
+  const createGoalFromPlan = async (plan: AiPlanGroup) => {
+    if (!token || plan.alreadyConverted || aiConverting.has(plan.goalLabel)) return;
+    setAiConverting((prev) => new Set([...prev, plan.goalLabel]));
+    try {
+      const goalData = await apiFetch<{ goal: ApiGoal }>("/goals", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ title: plan.goalLabel }),
+      }).catch(() => null);
+      if (!goalData) return;
+
+      await Promise.all(
+        plan.tasks.map((t) =>
+          apiFetch("/tasks", {
+            method: "POST",
+            token,
+            body: JSON.stringify({ title: t.title }),
+          }).catch(() => null)
+        )
+      );
+
+      const conversions = await loadAiGoalConversions();
+      conversions.add(plan.goalLabel);
+      await saveAiGoalConversions(conversions);
+
+      setGoals((prev) => [fromApi(goalData.goal, notifMapRef.current), ...prev]);
+      setAiPlans((prev) =>
+        prev.map((p) =>
+          p.goalLabel === plan.goalLabel ? { ...p, alreadyConverted: true } : p
+        )
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAiSuccessLabel(plan.goalLabel);
+      setAiShowSuccess(true);
+      setTimeout(() => setAiShowSuccess(false), 3500);
+    } finally {
+      setAiConverting((prev) => {
+        const next = new Set(prev);
+        next.delete(plan.goalLabel);
+        return next;
+      });
+    }
+  };
 
   const openAdd = () => {
     setPendingDeleteId(null); setEditingGoal(null); setInputText(""); setDraftReminder(undefined);
@@ -352,6 +454,15 @@ export default function GoalsScreen() {
         </View>
       )}
 
+      {aiShowSuccess && (
+        <View style={styles.aiSuccessBanner}>
+          <Feather name="check-circle" size={15} color="#34D399" />
+          <Text style={styles.aiSuccessBannerText} numberOfLines={2}>
+            تم إنشاء هدف "{aiSuccessLabel}" مع {aiPlans.find((p) => p.goalLabel === aiSuccessLabel)?.tasks.length ?? 0} مهام ✓
+          </Text>
+        </View>
+      )}
+
       {!loading && (
         <FlatList
           data={goals}
@@ -359,6 +470,69 @@ export default function GoalsScreen() {
           renderItem={renderGoal}
           contentContainerStyle={[styles.listContent, goals.length === 0 && styles.listEmpty]}
           showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            aiPlans.length > 0 ? (
+              <View style={styles.aiSection}>
+                <View style={styles.aiSectionHeader}>
+                  <View style={styles.aiSectionIconWrap}>
+                    <Feather name="cpu" size={12} color={AI_PURPLE} />
+                  </View>
+                  <Text style={styles.aiSectionTitle}>مهام AI</Text>
+                </View>
+
+                {aiPlans.map((plan) => {
+                  const isConverting = aiConverting.has(plan.goalLabel);
+                  const date = new Date(plan.createdAt);
+                  const dateLabel = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+
+                  return (
+                    <View key={plan.goalLabel} style={[styles.aiPlanCard, plan.alreadyConverted && styles.aiPlanCardDone]}>
+                      <View style={styles.aiPlanBody}>
+                        <Text style={[styles.aiPlanTitle, plan.alreadyConverted && styles.aiPlanTitleDone]} numberOfLines={2}>
+                          {plan.goalLabel}
+                        </Text>
+                        <View style={styles.aiPlanMeta}>
+                          <View style={styles.aiPlanChip}>
+                            <Feather name="list" size={10} color={AI_PURPLE} />
+                            <Text style={styles.aiPlanChipText}>{plan.tasks.length} مهام</Text>
+                          </View>
+                          <View style={styles.aiPlanChip}>
+                            <Feather name="calendar" size={10} color={colors.textSecondary} />
+                            <Text style={[styles.aiPlanChipText, { color: colors.textSecondary }]}>{dateLabel}</Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {plan.alreadyConverted ? (
+                        <View style={styles.aiDoneChip}>
+                          <Feather name="check" size={11} color="#34D399" />
+                          <Text style={styles.aiDoneChipText}>تم الإنشاء مسبقاً</Text>
+                        </View>
+                      ) : (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.aiCreateBtn,
+                            isConverting && { opacity: 0.5 },
+                            pressed && { opacity: 0.75 },
+                          ]}
+                          onPress={() => createGoalFromPlan(plan)}
+                          disabled={isConverting}
+                        >
+                          {isConverting ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.aiCreateBtnText}>إنشاء هدف</Text>
+                          )}
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={styles.aiSectionDivider} />
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <View style={styles.emptyIconWrap}>
@@ -474,6 +648,47 @@ function makeStyles(colors: ThemeColors) {
     emptyIconWrap: { width: 64, height: 64, borderRadius: 20, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", marginBottom: 8 },
     emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.textSoft, textAlign: "center", writingDirection: "rtl" },
     emptySubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center", writingDirection: "rtl" },
+    aiSuccessBanner: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 8,
+      backgroundColor: "#34D39918", borderRadius: 10,
+      paddingHorizontal: 14, paddingVertical: 10,
+      borderWidth: 1, borderColor: "#34D39933", marginBottom: 10,
+    },
+    aiSuccessBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "#34D399", writingDirection: "rtl" },
+    aiSection: { marginBottom: 8 },
+    aiSectionHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 8, marginBottom: 10 },
+    aiSectionIconWrap: {
+      width: 24, height: 24, borderRadius: 7,
+      backgroundColor: "#7C6EFA22", alignItems: "center", justifyContent: "center",
+    },
+    aiSectionTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: colors.textSecondary, writingDirection: "rtl", textTransform: "uppercase", letterSpacing: 0.5 },
+    aiPlanCard: {
+      flexDirection: "row", alignItems: "center",
+      backgroundColor: colors.card, borderRadius: 14,
+      paddingVertical: 12, paddingHorizontal: 14,
+      borderWidth: 1, borderColor: "#7C6EFA33",
+      marginBottom: 8, gap: 12,
+    },
+    aiPlanCardDone: { borderColor: colors.border, opacity: 0.65 },
+    aiPlanBody: { flex: 1, gap: 6 },
+    aiPlanTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.text, writingDirection: "rtl", lineHeight: 20 },
+    aiPlanTitleDone: { color: colors.textSecondary },
+    aiPlanMeta: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+    aiPlanChip: { flexDirection: "row-reverse", alignItems: "center", gap: 4, backgroundColor: "#7C6EFA14", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+    aiPlanChipText: { fontSize: 10, fontFamily: "Inter_500Medium", color: "#7C6EFA", writingDirection: "rtl" },
+    aiCreateBtn: {
+      backgroundColor: "#7C6EFA", borderRadius: 10,
+      paddingHorizontal: 12, paddingVertical: 8, minWidth: 82, alignItems: "center",
+    },
+    aiCreateBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FFFFFF", writingDirection: "rtl" },
+    aiDoneChip: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 5,
+      backgroundColor: "#34D39918", borderRadius: 10,
+      paddingHorizontal: 10, paddingVertical: 7,
+      borderWidth: 1, borderColor: "#34D39933",
+    },
+    aiDoneChipText: { fontSize: 11, fontFamily: "Inter_500Medium", color: "#34D399", writingDirection: "rtl" },
+    aiSectionDivider: { height: 1, backgroundColor: colors.border, marginTop: 4, marginBottom: 14 },
     fab: { position: "absolute", bottom: Platform.OS === "web" ? 34 + 70 : 90, left: 24, width: 56, height: 56, borderRadius: 18, backgroundColor: GOAL_ACCENT, alignItems: "center", justifyContent: "center", shadowColor: GOAL_ACCENT, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
     fabPressed: { transform: [{ scale: 0.93 }], opacity: 0.9 },
     overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
