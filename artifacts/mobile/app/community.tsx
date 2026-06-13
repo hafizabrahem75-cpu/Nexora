@@ -28,6 +28,8 @@ const COMMUNITY_COLOR = "#10B981";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type FeedMode = "following" | "discover";
+
 interface PostAuthor {
   id: string;
   name: string;
@@ -99,26 +101,85 @@ export default function CommunityScreen() {
 
   const { token, user } = useAuth();
   const colors = useColors();
+  const { accent } = useSettings();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [posts, setPosts]               = useState<Post[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [composerText, setComposerText] = useState("");
-  const [posting, setPosting]           = useState(false);
-  const [openPostId, setOpenPostId]     = useState<string | null>(null);
+  const [feedMode, setFeedMode]             = useState<FeedMode>("discover");
+  const [modeResolved, setModeResolved]     = useState(false); // true once we've picked the default
+  const [posts, setPosts]                   = useState<Post[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [composerText, setComposerText]     = useState("");
+  const [posting, setPosting]               = useState(false);
+  const [openPostId, setOpenPostId]         = useState<string | null>(null);
+  // Following-feed metadata
+  const [followingCount, setFollowingCount] = useState(0);
 
   const inputRef = useRef<TextInput>(null);
 
-  // ── Load posts on focus ────────────────────────────────────────────────────
+  // ── Load posts ─────────────────────────────────────────────────────────────
+  const loadPosts = useCallback(
+    async (mode: FeedMode, tkn: string) => {
+      setLoading(true);
+      try {
+        if (mode === "following") {
+          const data = await apiFetch<{ posts: Post[]; followingCount: number }>(
+            "/community/posts/following",
+            { token: tkn },
+          );
+          setPosts(data.posts);
+          setFollowingCount(data.followingCount);
+        } else {
+          const data = await apiFetch<{ posts: Post[] }>("/community/posts", { token: tkn });
+          setPosts(data.posts);
+        }
+      } catch {
+        // silent
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  // ── On focus: resolve default mode once, then reload ──────────────────────
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
-      setLoading(true);
-      apiFetch<{ posts: Post[] }>("/community/posts", { token })
-        .then(({ posts: data }) => setPosts(data))
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    }, [token])
+
+      if (!modeResolved) {
+        // Fetch following feed first to determine if user follows anyone
+        apiFetch<{ posts: Post[]; followingCount: number }>(
+          "/community/posts/following",
+          { token },
+        )
+          .then((data) => {
+            setFollowingCount(data.followingCount);
+            const defaultMode: FeedMode = data.followingCount > 0 ? "following" : "discover";
+            setFeedMode(defaultMode);
+            setPosts(data.posts);
+            setModeResolved(true);
+          })
+          .catch(() => {
+            setFeedMode("discover");
+            setModeResolved(true);
+            loadPosts("discover", token);
+          })
+          .finally(() => setLoading(false));
+        return;
+      }
+
+      loadPosts(feedMode, token);
+    }, [token, modeResolved, feedMode, loadPosts]),
+  );
+
+  // ── Switch feed mode ───────────────────────────────────────────────────────
+  const switchMode = useCallback(
+    (mode: FeedMode) => {
+      if (mode === feedMode || !token) return;
+      setFeedMode(mode);
+      loadPosts(mode, token);
+    },
+    [feedMode, token, loadPosts],
   );
 
   // ── Real-time like updates ─────────────────────────────────────────────────
@@ -220,7 +281,6 @@ export default function CommunityScreen() {
 
       {/* Footer */}
       <View style={styles.postFooter}>
-        {/* Comments button */}
         <Pressable
           style={styles.postStat}
           onPress={() => setOpenPostId(item.id)}
@@ -230,7 +290,6 @@ export default function CommunityScreen() {
           <Text style={styles.postStatText}>{item.commentsCount}</Text>
         </Pressable>
 
-        {/* Like button */}
         <Pressable
           style={styles.postStat}
           onPress={() => toggleLike(item.id, item.isLiked)}
@@ -297,8 +356,34 @@ export default function CommunityScreen() {
     </View>
   );
 
-  // ── Empty state ───────────────────────────────────────────────────────────
-  const EmptyState = (
+  // ── Empty states ──────────────────────────────────────────────────────────
+  const EmptyFollowing = (
+    <View style={styles.emptyWrap}>
+      <View style={styles.emptyIconWrap}>
+        <Feather name="users" size={30} color={colors.placeholder} />
+      </View>
+      <Text style={styles.emptyTitle}>
+        {followingCount === 0 ? "لا تتابع أحداً بعد" : "لا توجد منشورات"}
+      </Text>
+      <Text style={styles.emptySubtitle}>
+        {followingCount === 0
+          ? "تابع مستخدمين لترى منشوراتهم هنا"
+          : "المستخدمون الذين تتابعهم لم ينشروا بعد"}
+      </Text>
+      {followingCount === 0 && (
+        <Pressable
+          style={[styles.discoverBtn, { borderColor: COMMUNITY_COLOR }]}
+          onPress={() => switchMode("discover")}
+        >
+          <Text style={[styles.discoverBtnText, { color: COMMUNITY_COLOR }]}>
+            استكشف المستخدمين
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+
+  const EmptyDiscover = (
     <View style={styles.emptyWrap}>
       <View style={styles.emptyIconWrap}>
         <Feather name="users" size={30} color={colors.placeholder} />
@@ -316,8 +401,36 @@ export default function CommunityScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerChip}>
-          <Text style={styles.headerChipText}>{posts.length}</Text>
+        {/* Feed toggle */}
+        <View style={[styles.toggle, { borderColor: colors.border }]}>
+          <Pressable
+            style={[
+              styles.toggleTab,
+              feedMode === "following" && [styles.toggleTabActive, { backgroundColor: COMMUNITY_COLOR }],
+            ]}
+            onPress={() => switchMode("following")}
+          >
+            <Text style={[
+              styles.toggleText,
+              feedMode === "following" ? styles.toggleTextActive : { color: colors.textSecondary },
+            ]}>
+              المتابَعون
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.toggleTab,
+              feedMode === "discover" && [styles.toggleTabActive, { backgroundColor: COMMUNITY_COLOR }],
+            ]}
+            onPress={() => switchMode("discover")}
+          >
+            <Text style={[
+              styles.toggleText,
+              feedMode === "discover" ? styles.toggleTextActive : { color: colors.textSecondary },
+            ]}>
+              اكتشف
+            </Text>
+          </Pressable>
         </View>
         <Text style={styles.headerTitle}>المجتمع</Text>
       </View>
@@ -332,7 +445,7 @@ export default function CommunityScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderPost}
           ListHeaderComponent={ListHeader}
-          ListEmptyComponent={EmptyState}
+          ListEmptyComponent={feedMode === "following" ? EmptyFollowing : EmptyDiscover}
           contentContainerStyle={[
             styles.listContent,
             posts.length === 0 && styles.listEmpty,
@@ -343,7 +456,6 @@ export default function CommunityScreen() {
 
       <BottomNav active="community" />
 
-      {/* Comments bottom sheet */}
       <CommentsSheet
         postId={openPostId}
         onClose={() => setOpenPostId(null)}
@@ -365,12 +477,28 @@ function makeStyles(colors: ThemeColors) {
       paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14,
     },
     headerTitle: { fontSize: 28, fontFamily: "Inter_700Bold", color: colors.text, writingDirection: "rtl" },
-    headerChip: {
-      backgroundColor: colors.card, borderRadius: 10,
-      paddingHorizontal: 12, paddingVertical: 5,
-      borderWidth: 1, borderColor: colors.border,
+
+    toggle: {
+      flexDirection: "row",
+      borderRadius: 12,
+      borderWidth: 1,
+      overflow: "hidden",
     },
-    headerChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COMMUNITY_COLOR },
+    toggleTab: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+    },
+    toggleTabActive: {
+      borderRadius: 10,
+    },
+    toggleText: {
+      fontSize: 13,
+      fontFamily: "Inter_600SemiBold",
+      writingDirection: "rtl",
+    },
+    toggleTextActive: {
+      color: "#FFFFFF",
+    },
 
     listContent: { paddingHorizontal: 16, paddingBottom: 120, gap: 12 },
     listEmpty: { flex: 1, justifyContent: "center" },
@@ -425,5 +553,10 @@ function makeStyles(colors: ThemeColors) {
     },
     emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.textSoft, writingDirection: "rtl" },
     emptySubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, writingDirection: "rtl", textAlign: "center" },
+    discoverBtn: {
+      marginTop: 8, borderRadius: 12, borderWidth: 1.5,
+      paddingHorizontal: 20, paddingVertical: 9,
+    },
+    discoverBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", writingDirection: "rtl" },
   });
 }

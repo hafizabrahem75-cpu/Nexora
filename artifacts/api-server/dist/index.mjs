@@ -61375,6 +61375,39 @@ router3.get("/posts", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
+router3.get("/posts/following", requireAuth, async (req, res) => {
+  const userId = req.userId;
+  try {
+    const followed = await db.select({ followeeId: followsTable.followeeId }).from(followsTable).where(eq(followsTable.followerId, userId));
+    const followedIds = followed.map((f) => f.followeeId);
+    const relevantIds = [...followedIds, userId];
+    const rows = await db.select({
+      id: communityPostsTable.id,
+      content: communityPostsTable.content,
+      likesCount: communityPostsTable.likesCount,
+      commentsCount: communityPostsTable.commentsCount,
+      createdAt: communityPostsTable.createdAt,
+      author: {
+        id: usersTable.id,
+        name: usersTable.name,
+        username: usersTable.username,
+        avatarColor: usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri
+      }
+    }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).where(inArray(communityPostsTable.userId, relevantIds)).orderBy(desc(communityPostsTable.createdAt)).limit(100);
+    let likedSet = /* @__PURE__ */ new Set();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(and(eq(postLikesTable.userId, userId), inArray(postLikesTable.postId, postIds)));
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    res.json({ posts, followingCount: followedIds.length });
+  } catch (err) {
+    req.log.error(err, "getFollowingPosts failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 var CreatePostBody = external_exports.object({
   content: external_exports.string().min(1).max(5e3)
 });

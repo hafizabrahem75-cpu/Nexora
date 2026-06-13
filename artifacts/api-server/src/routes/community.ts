@@ -1,5 +1,5 @@
-import { db, communityPostsTable, postCommentsTable, postLikesTable, usersTable } from "@workspace/db";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, usersTable } from "@workspace/db";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { wsManager } from "../lib/wsManager";
@@ -49,6 +49,60 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
     res.json({ posts });
   } catch (err) {
     req.log.error(err, "getCommunityPosts failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── GET /community/posts/following ──────────────────────────────────────────
+router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
+  try {
+    // Fetch IDs the user follows
+    const followed = await db
+      .select({ followeeId: followsTable.followeeId })
+      .from(followsTable)
+      .where(eq(followsTable.followerId, userId));
+
+    const followedIds = followed.map((f) => f.followeeId);
+    // Include own posts
+    const relevantIds = [...followedIds, userId];
+
+    const rows = await db
+      .select({
+        id:            communityPostsTable.id,
+        content:       communityPostsTable.content,
+        likesCount:    communityPostsTable.likesCount,
+        commentsCount: communityPostsTable.commentsCount,
+        createdAt:     communityPostsTable.createdAt,
+        author: {
+          id:             usersTable.id,
+          name:           usersTable.name,
+          username:       usersTable.username,
+          avatarColor:    usersTable.avatarColor,
+          avatarImageUri: usersTable.avatarImageUri,
+        },
+      })
+      .from(communityPostsTable)
+      .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
+      .where(inArray(communityPostsTable.userId, relevantIds))
+      .orderBy(desc(communityPostsTable.createdAt))
+      .limit(100);
+
+    let likedSet = new Set<string>();
+    if (rows.length > 0) {
+      const postIds = rows.map((r) => r.id);
+      const liked = await db
+        .select({ postId: postLikesTable.postId })
+        .from(postLikesTable)
+        .where(and(eq(postLikesTable.userId, userId), inArray(postLikesTable.postId, postIds)));
+      likedSet = new Set(liked.map((l) => l.postId));
+    }
+
+    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    // Return count of followed accounts so the client knows if feed is empty due to no follows
+    res.json({ posts, followingCount: followedIds.length });
+  } catch (err) {
+    req.log.error(err, "getFollowingPosts failed");
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
