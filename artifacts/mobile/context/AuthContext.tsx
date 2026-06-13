@@ -118,6 +118,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setIsLoading(false);
+    }, 10_000);
+
     async function restore() {
       try {
         const saved = await loadToken();
@@ -125,12 +129,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const data = await apiFetch<{ user: PublicUser }>("/auth/me", {
           token: saved,
+          signal: AbortSignal.timeout(8_000),
         });
 
         if (!cancelled) applySession(saved, data.user);
       } catch {
         await clearToken().catch(() => {});
       } finally {
+        clearTimeout(safetyTimer);
         if (!cancelled) setIsLoading(false);
       }
     }
@@ -138,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     restore();
     return () => {
       cancelled = true;
+      clearTimeout(safetyTimer);
     };
   }, [applySession]);
 
