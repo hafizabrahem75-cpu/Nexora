@@ -181,6 +181,7 @@ router.get("/me", requireAuth, (req: AuthRequest, res) => {
 // ─── Update profile ───────────────────────────────────────────────────────────
 const UpdateProfileBody = z.object({
   name: z.string().min(1).max(60).optional(),
+  bio: z.string().max(200).nullable().optional(),
   avatarColor: z.string().optional(),
   avatarImageUri: z.string().nullable().optional(),
   profileVisibility: z.enum(["everyone", "friends", "nobody"]).optional(),

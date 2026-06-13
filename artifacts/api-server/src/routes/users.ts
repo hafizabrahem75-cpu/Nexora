@@ -115,6 +115,7 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
         id:             usersTable.id,
         name:           usersTable.name,
         username:       usersTable.username,
+        bio:            usersTable.bio,
         avatarColor:    usersTable.avatarColor,
         avatarImageUri: usersTable.avatarImageUri,
         createdAt:      usersTable.createdAt,

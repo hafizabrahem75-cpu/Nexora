@@ -23,6 +23,7 @@ interface ProfileUser {
   id: string;
   name: string;
   username: string | null;
+  bio: string | null;
   avatarColor: string;
   avatarImageUri: string | null;
   createdAt: string;
@@ -251,6 +252,11 @@ export default function PublicProfileScreen() {
           <Text style={styles.handle}>@{profileUser.username}</Text>
         ) : null}
 
+        {/* Bio */}
+        {profileUser.bio ? (
+          <Text style={styles.bio}>{profileUser.bio}</Text>
+        ) : null}
+
         {/* Join date */}
         <View style={styles.joinRow}>
           <Feather name="calendar" size={12} color={colors.textTertiary} />
@@ -471,6 +477,15 @@ function makeStyles(colors: ThemeColors) {
       fontFamily: "Inter_400Regular",
       color: colors.textTertiary,
       writingDirection: "ltr",
+    },
+    bio: {
+      fontSize: 14,
+      fontFamily: "Inter_400Regular",
+      color: colors.textSecondary,
+      textAlign: "center",
+      writingDirection: "rtl",
+      lineHeight: 21,
+      maxWidth: 280,
     },
     joinRow: {
       flexDirection: "row",

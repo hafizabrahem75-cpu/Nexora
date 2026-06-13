@@ -310,7 +310,7 @@ export default function ProfileScreen() {
               placeholder="أخبر الناس عنك..."
               placeholderTextColor={colors.placeholder}
               textAlign="right"
-              maxLength={160}
+              maxLength={200}
               multiline
             />
 

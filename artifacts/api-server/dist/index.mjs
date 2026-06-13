@@ -57784,6 +57784,7 @@ var usersTable = pgTable("users", {
   username: text("username").unique(),
   avatarColor: text("avatar_color").notNull().default("#7C6EFA"),
   avatarImageUri: text("avatar_image_uri"),
+  bio: text("bio"),
   emailVerified: boolean("email_verified").notNull().default(false),
   profileVisibility: text("profile_visibility").notNull().default("everyone"),
   messagingPrivacy: text("messaging_privacy").notNull().default("everyone"),
@@ -61196,6 +61197,7 @@ router2.get("/me", requireAuth, (req, res) => {
 });
 var UpdateProfileBody = external_exports.object({
   name: external_exports.string().min(1).max(60).optional(),
+  bio: external_exports.string().max(200).nullable().optional(),
   avatarColor: external_exports.string().optional(),
   avatarImageUri: external_exports.string().nullable().optional(),
   profileVisibility: external_exports.enum(["everyone", "friends", "nobody"]).optional(),
@@ -66443,6 +66445,7 @@ router13.get("/profile/:userId", requireAuth, async (req, res) => {
       id: usersTable.id,
       name: usersTable.name,
       username: usersTable.username,
+      bio: usersTable.bio,
       avatarColor: usersTable.avatarColor,
       avatarImageUri: usersTable.avatarImageUri,
       createdAt: usersTable.createdAt

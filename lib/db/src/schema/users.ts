@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   username: text("username").unique(),
   avatarColor: text("avatar_color").notNull().default("#7C6EFA"),
   avatarImageUri: text("avatar_image_uri"),
+  bio: text("bio"),
   emailVerified: boolean("email_verified").notNull().default(false),
   profileVisibility: text("profile_visibility").notNull().default("everyone"),
   messagingPrivacy: text("messaging_privacy").notNull().default("everyone"),
