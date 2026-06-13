@@ -59052,6 +59052,38 @@ var wsManager = {
     } catch {
     }
   },
+  async notifyPostLiked(params) {
+    try {
+      const [notif] = await db.insert(notificationsTable).values({
+        userId: params.postOwnerId,
+        type: "post_liked",
+        title: params.likerName,
+        body: "\u0623\u0639\u062C\u0628 \u0628\u0645\u0646\u0634\u0648\u0631\u0643",
+        data: { postId: params.postId },
+        read: false
+      }).returning();
+      if (notif) {
+        this.send(params.postOwnerId, { type: "notification", payload: notif });
+      }
+    } catch {
+    }
+  },
+  async notifyPostCommented(params) {
+    try {
+      const [notif] = await db.insert(notificationsTable).values({
+        userId: params.postOwnerId,
+        type: "post_commented",
+        title: params.commenterName,
+        body: params.preview.length > 80 ? params.preview.slice(0, 80) + "\u2026" : params.preview,
+        data: { postId: params.postId, commentId: params.commentId },
+        read: false
+      }).returning();
+      if (notif) {
+        this.send(params.postOwnerId, { type: "notification", payload: notif });
+      }
+    } catch {
+    }
+  },
   async notifyFriendAccepted(params) {
     try {
       const [notif] = await db.insert(notificationsTable).values({
@@ -61368,12 +61400,19 @@ router3.post("/posts/:id/like", requireAuth, async (req, res) => {
       res.json({ likesCount: post?.likesCount ?? 0 });
       return;
     }
-    const [updated] = await db.update(communityPostsTable).set({ likesCount: sql`${communityPostsTable.likesCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ likesCount: communityPostsTable.likesCount });
+    const [updated] = await db.update(communityPostsTable).set({ likesCount: sql`${communityPostsTable.likesCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ likesCount: communityPostsTable.likesCount, ownerId: communityPostsTable.userId });
     if (!updated) {
       res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return;
     }
     wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+    if (updated.ownerId !== req.userId) {
+      wsManager.notifyPostLiked({
+        postOwnerId: updated.ownerId,
+        likerName: req.user.name,
+        postId
+      });
+    }
     res.json({ likesCount: updated.likesCount });
   } catch (err) {
     req.log.error(err, "likePost failed");
@@ -61435,7 +61474,7 @@ router3.post("/posts/:id/comments", requireAuth, async (req, res) => {
   }
   try {
     const [inserted] = await db.insert(postCommentsTable).values({ postId, userId: req.userId, content: parsed.data.content }).returning();
-    const [updated] = await db.update(communityPostsTable).set({ commentsCount: sql`${communityPostsTable.commentsCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ commentsCount: communityPostsTable.commentsCount });
+    const [updated] = await db.update(communityPostsTable).set({ commentsCount: sql`${communityPostsTable.commentsCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ commentsCount: communityPostsTable.commentsCount, ownerId: communityPostsTable.userId });
     const comment = {
       id: inserted.id,
       content: inserted.content,
@@ -61452,6 +61491,15 @@ router3.post("/posts/:id/comments", requireAuth, async (req, res) => {
       type: "post_commented",
       payload: { postId, comment, commentsCount: updated?.commentsCount ?? 0 }
     });
+    if (updated && updated.ownerId !== req.userId) {
+      wsManager.notifyPostCommented({
+        postOwnerId: updated.ownerId,
+        commenterName: req.user.name,
+        postId,
+        commentId: inserted.id,
+        preview: parsed.data.content
+      });
+    }
     res.status(201).json({ comment, commentsCount: updated?.commentsCount ?? 0 });
   } catch (err) {
     req.log.error(err, "createComment failed");

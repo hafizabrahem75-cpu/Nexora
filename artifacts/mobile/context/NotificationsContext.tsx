@@ -12,7 +12,7 @@ import { addWsListener } from "@/lib/ws";
 export interface AppNotification {
   id: string;
   userId: string;
-  type: "new_message" | "friend_request" | "friend_accepted" | "announcement";
+  type: "new_message" | "friend_request" | "friend_accepted" | "announcement" | "post_liked" | "post_commented";
   title: string;
   body: string;
   data?: Record<string, unknown> | null;

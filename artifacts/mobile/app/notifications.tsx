@@ -43,19 +43,23 @@ function dateLabel(iso: string): string {
 
 function notifIcon(type: AppNotification["type"]): React.ComponentProps<typeof Feather>["name"] {
   switch (type) {
-    case "new_message": return "message-circle";
+    case "new_message":    return "message-circle";
     case "friend_request": return "user-plus";
-    case "friend_accepted": return "users";
-    case "announcement": return "bell";
+    case "friend_accepted":return "users";
+    case "announcement":   return "bell";
+    case "post_liked":     return "heart";
+    case "post_commented": return "message-square";
   }
 }
 
 function notifIconColor(type: AppNotification["type"], accent: string): string {
   switch (type) {
-    case "new_message": return accent;
+    case "new_message":    return accent;
     case "friend_request": return "#F59E0B";
-    case "friend_accepted": return "#34D399";
-    case "announcement": return "#3B82F6";
+    case "friend_accepted":return "#34D399";
+    case "announcement":   return "#3B82F6";
+    case "post_liked":     return "#EF4444";
+    case "post_commented": return "#10B981";
   }
 }
 
@@ -98,6 +102,8 @@ export default function NotificationsScreen() {
         router.push(`/chat/${data.conversationId}` as any);
       } else if (notif.type === "friend_request" || notif.type === "friend_accepted") {
         router.push("/friends" as any);
+      } else if (notif.type === "post_liked" || notif.type === "post_commented") {
+        router.push("/community" as any);
       }
     },
     [token, markRead],

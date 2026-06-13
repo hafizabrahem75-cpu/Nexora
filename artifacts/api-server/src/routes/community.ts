@@ -116,7 +116,7 @@ router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
       .update(communityPostsTable)
       .set({ likesCount: sql`${communityPostsTable.likesCount} + 1` })
       .where(eq(communityPostsTable.id, postId))
-      .returning({ likesCount: communityPostsTable.likesCount });
+      .returning({ likesCount: communityPostsTable.likesCount, ownerId: communityPostsTable.userId });
 
     if (!updated) {
       res.status(404).json({ error: "المنشور غير موجود" });
@@ -124,6 +124,15 @@ router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
     }
 
     wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+
+    if (updated.ownerId !== req.userId) {
+      wsManager.notifyPostLiked({
+        postOwnerId: updated.ownerId,
+        likerName: req.user!.name,
+        postId,
+      });
+    }
+
     res.json({ likesCount: updated.likesCount });
   } catch (err) {
     req.log.error(err, "likePost failed");
@@ -220,7 +229,7 @@ router.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) =>
       .update(communityPostsTable)
       .set({ commentsCount: sql`${communityPostsTable.commentsCount} + 1` })
       .where(eq(communityPostsTable.id, postId))
-      .returning({ commentsCount: communityPostsTable.commentsCount });
+      .returning({ commentsCount: communityPostsTable.commentsCount, ownerId: communityPostsTable.userId });
 
     const comment = {
       id:        inserted.id,
@@ -239,6 +248,16 @@ router.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) =>
       type: "post_commented",
       payload: { postId, comment, commentsCount: updated?.commentsCount ?? 0 },
     });
+
+    if (updated && updated.ownerId !== req.userId) {
+      wsManager.notifyPostCommented({
+        postOwnerId: updated.ownerId,
+        commenterName: req.user!.name,
+        postId,
+        commentId: inserted.id,
+        preview: parsed.data.content,
+      });
+    }
 
     res.status(201).json({ comment, commentsCount: updated?.commentsCount ?? 0 });
   } catch (err) {

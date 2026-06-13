@@ -90,6 +90,58 @@ export const wsManager = {
     }
   },
 
+  async notifyPostLiked(params: {
+    postOwnerId: string;
+    likerName: string;
+    postId: string;
+  }) {
+    try {
+      const [notif] = await db
+        .insert(notificationsTable)
+        .values({
+          userId: params.postOwnerId,
+          type: "post_liked",
+          title: params.likerName,
+          body: "أعجب بمنشورك",
+          data: { postId: params.postId },
+          read: false,
+        })
+        .returning();
+      if (notif) {
+        this.send(params.postOwnerId, { type: "notification", payload: notif });
+      }
+    } catch {
+      // best-effort
+    }
+  },
+
+  async notifyPostCommented(params: {
+    postOwnerId: string;
+    commenterName: string;
+    postId: string;
+    commentId: string;
+    preview: string;
+  }) {
+    try {
+      const [notif] = await db
+        .insert(notificationsTable)
+        .values({
+          userId: params.postOwnerId,
+          type: "post_commented",
+          title: params.commenterName,
+          body: params.preview.length > 80 ? params.preview.slice(0, 80) + "…" : params.preview,
+          data: { postId: params.postId, commentId: params.commentId },
+          read: false,
+        })
+        .returning();
+      if (notif) {
+        this.send(params.postOwnerId, { type: "notification", payload: notif });
+      }
+    } catch {
+      // best-effort
+    }
+  },
+
   async notifyFriendAccepted(params: {
     recipientId: string;
     acceptorName: string;
