@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomNav from "@/components/BottomNav";
+import CommentsSheet from "@/components/CommentsSheet";
 import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
@@ -104,6 +105,7 @@ export default function CommunityScreen() {
   const [loading, setLoading]           = useState(true);
   const [composerText, setComposerText] = useState("");
   const [posting, setPosting]           = useState(false);
+  const [openPostId, setOpenPostId]     = useState<string | null>(null);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -119,23 +121,30 @@ export default function CommunityScreen() {
     }, [token])
   );
 
-  // ── Real-time like updates via WebSocket ──────────────────────────────────
+  // ── Real-time like updates ─────────────────────────────────────────────────
   useEffect(() => {
     const remove = addWsListener((event) => {
-      if (event.type !== "post_liked") return;
-      const { postId, likesCount } = event.payload as { postId: string; likesCount: number };
-      setPosts((prev) =>
-        prev.map((p) => (p.id === postId ? { ...p, likesCount } : p))
-      );
+      if (event.type === "post_liked") {
+        const { postId, likesCount } = event.payload as { postId: string; likesCount: number };
+        setPosts((prev) =>
+          prev.map((p) => (p.id === postId ? { ...p, likesCount } : p))
+        );
+      }
     });
     return remove;
+  }, []);
+
+  // ── Comments count sync from CommentsSheet ─────────────────────────────────
+  const handleCommentsCountChange = useCallback((postId: string, commentsCount: number) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, commentsCount } : p))
+    );
   }, []);
 
   // ── Toggle like (optimistic) ───────────────────────────────────────────────
   const toggleLike = useCallback(async (postId: string, isLiked: boolean) => {
     if (!token) return;
 
-    // Optimistic update
     setPosts((prev) =>
       prev.map((p) =>
         p.id === postId
@@ -152,7 +161,6 @@ export default function CommunityScreen() {
         await apiFetch(`/community/posts/${postId}/like`, { method: "POST", token });
       }
     } catch {
-      // Revert on failure
       setPosts((prev) =>
         prev.map((p) =>
           p.id === postId
@@ -180,7 +188,7 @@ export default function CommunityScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       inputRef.current?.blur();
     } catch {
-      // silent — user still sees old list
+      // silent
     } finally {
       setPosting(false);
     }
@@ -206,11 +214,17 @@ export default function CommunityScreen() {
 
       {/* Footer */}
       <View style={styles.postFooter}>
-        <View style={styles.postStat}>
+        {/* Comments button */}
+        <Pressable
+          style={styles.postStat}
+          onPress={() => setOpenPostId(item.id)}
+          hitSlop={8}
+        >
           <Feather name="message-circle" size={14} color={colors.placeholder} />
           <Text style={styles.postStatText}>{item.commentsCount}</Text>
-        </View>
+        </Pressable>
 
+        {/* Like button */}
         <Pressable
           style={styles.postStat}
           onPress={() => toggleLike(item.id, item.isLiked)}
@@ -322,6 +336,13 @@ export default function CommunityScreen() {
       )}
 
       <BottomNav active="community" />
+
+      {/* Comments bottom sheet */}
+      <CommentsSheet
+        postId={openPostId}
+        onClose={() => setOpenPostId(null)}
+        onCommentsCountChange={handleCommentsCountChange}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -333,7 +354,6 @@ function makeStyles(colors: ThemeColors) {
     root: { flex: 1, backgroundColor: colors.bg },
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-    // Header
     header: {
       flexDirection: "row", alignItems: "center", justifyContent: "space-between",
       paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14,
@@ -346,11 +366,9 @@ function makeStyles(colors: ThemeColors) {
     },
     headerChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COMMUNITY_COLOR },
 
-    // List
     listContent: { paddingHorizontal: 16, paddingBottom: 120, gap: 12 },
     listEmpty: { flex: 1, justifyContent: "center" },
 
-    // Composer
     composer: {
       backgroundColor: colors.card, borderRadius: 18,
       borderWidth: 1, borderColor: colors.border,
@@ -372,7 +390,6 @@ function makeStyles(colors: ThemeColors) {
     publishBtnDisabled: { opacity: 0.35 },
     publishBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF", writingDirection: "rtl" },
 
-    // Post card
     postCard: {
       backgroundColor: colors.card, borderRadius: 18,
       borderWidth: 1, borderColor: colors.border,
@@ -394,7 +411,6 @@ function makeStyles(colors: ThemeColors) {
     postStatText: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.placeholder },
     postStatLiked: { color: "#EF4444" },
 
-    // Empty state
     emptyWrap: { alignItems: "center", gap: 10, paddingBottom: 80 },
     emptyIconWrap: {
       width: 64, height: 64, borderRadius: 20,

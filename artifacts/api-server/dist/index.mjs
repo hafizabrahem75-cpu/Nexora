@@ -46368,6 +46368,7 @@ __export(schema_exports, {
   notesTable: () => notesTable,
   notificationsTable: () => notificationsTable,
   passwordResetTokensTable: () => passwordResetTokensTable,
+  postCommentsTable: () => postCommentsTable,
   postLikesTable: () => postLikesTable,
   publicUserSchema: () => publicUserSchema,
   sessionsTable: () => sessionsTable,
@@ -57975,6 +57976,18 @@ var postLikesTable = pgTable("post_likes", {
   primaryKey({ columns: [t.userId, t.postId] })
 ]);
 
+// ../../lib/db/src/schema/post_comments.ts
+var postCommentsTable = pgTable("post_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  postId: uuid("post_id").notNull().references(() => communityPostsTable.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow()
+}, (t) => [
+  index("post_comments_post_id_idx").on(t.postId),
+  index("post_comments_created_at_idx").on(t.createdAt)
+]);
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -61314,11 +61327,11 @@ router3.get("/posts", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody = external_exports.object({
+var CreatePostBody = external_exports.object({
   content: external_exports.string().min(1).max(5e3)
 });
 router3.post("/posts", requireAuth, async (req, res) => {
-  const parsed = CreateBody.safeParse(req.body);
+  const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -61386,6 +61399,62 @@ router3.delete("/posts/:id/like", requireAuth, async (req, res) => {
     res.json({ likesCount: updated?.likesCount ?? 0 });
   } catch (err) {
     req.log.error(err, "unlikePost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.get("/posts/:id/comments", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  try {
+    const rows = await db.select({
+      id: postCommentsTable.id,
+      content: postCommentsTable.content,
+      createdAt: postCommentsTable.createdAt,
+      author: {
+        id: usersTable.id,
+        name: usersTable.name,
+        username: usersTable.username,
+        avatarColor: usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri
+      }
+    }).from(postCommentsTable).innerJoin(usersTable, eq(postCommentsTable.userId, usersTable.id)).where(eq(postCommentsTable.postId, postId)).orderBy(asc(postCommentsTable.createdAt)).limit(200);
+    res.json({ comments: rows });
+  } catch (err) {
+    req.log.error(err, "getComments failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var CreateCommentBody = external_exports.object({
+  content: external_exports.string().min(1).max(2e3)
+});
+router3.post("/posts/:id/comments", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  const parsed = CreateCommentBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [inserted] = await db.insert(postCommentsTable).values({ postId, userId: req.userId, content: parsed.data.content }).returning();
+    const [updated] = await db.update(communityPostsTable).set({ commentsCount: sql`${communityPostsTable.commentsCount} + 1` }).where(eq(communityPostsTable.id, postId)).returning({ commentsCount: communityPostsTable.commentsCount });
+    const comment = {
+      id: inserted.id,
+      content: inserted.content,
+      createdAt: inserted.createdAt,
+      author: {
+        id: req.user.id,
+        name: req.user.name,
+        username: req.user.username,
+        avatarColor: req.user.avatarColor,
+        avatarImageUri: req.user.avatarImageUri ?? null
+      }
+    };
+    wsManager.broadcastAll({
+      type: "post_commented",
+      payload: { postId, comment, commentsCount: updated?.commentsCount ?? 0 }
+    });
+    res.status(201).json({ comment, commentsCount: updated?.commentsCount ?? 0 });
+  } catch (err) {
+    req.log.error(err, "createComment failed");
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
@@ -61855,12 +61924,12 @@ router6.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody2 = external_exports.object({
+var CreateBody = external_exports.object({
   title: external_exports.string().min(1).max(500),
   reminderAt: external_exports.string().nullable().optional()
 });
 router6.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody2.safeParse(req.body);
+  const parsed = CreateBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -65916,11 +65985,11 @@ router8.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody3 = external_exports.object({
+var CreateBody2 = external_exports.object({
   content: external_exports.string().min(1).max(1e4)
 });
 router8.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody3.safeParse(req.body);
+  const parsed = CreateBody2.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
@@ -66067,12 +66136,12 @@ router11.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-var CreateBody4 = external_exports.object({
+var CreateBody3 = external_exports.object({
   title: external_exports.string().min(1).max(500),
   reminderAt: external_exports.string().nullable().optional()
 });
 router11.post("/", requireAuth, async (req, res) => {
-  const parsed = CreateBody4.safeParse(req.body);
+  const parsed = CreateBody3.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
     return;
