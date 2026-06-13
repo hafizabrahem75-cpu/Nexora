@@ -279,7 +279,12 @@ export default function NexoraAIScreen() {
             <Text style={[styles.aiBadgeText, { color: AI_COLOR }]}>Beta</Text>
           </View>
         </View>
-        <View style={{ width: 36 }} />
+        <Pressable
+          style={({ pressed }) => [styles.videoBtn, pressed && { opacity: 0.7 }]}
+          onPress={() => router.push("/video-import")}
+        >
+          <Feather name="video" size={15} color={AI_COLOR} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -506,6 +511,7 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       borderBottomWidth: 1, borderBottomColor: colors.borderSubtle,
     },
     backBtn:      { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+    videoBtn:     { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#7C6EFA22", borderWidth: 1, borderColor: "#7C6EFA33" },
     headerCenter: { flexDirection: "row", alignItems: "center", gap: DS.spacing.sm },
     headerTitle:  { fontSize: DS.font.size.lg, fontFamily: DS.font.family.bold, color: colors.text },
     aiBadge:      { paddingHorizontal: DS.spacing.sm, paddingVertical: 2, borderRadius: DS.radius.pill },
