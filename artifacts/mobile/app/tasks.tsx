@@ -4,11 +4,13 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,7 +30,28 @@ import {
   scheduleReminder,
 } from "@/utils/notifications";
 
-const NOTIF_KEY = "@nexora_task_notif_ids";
+const NOTIF_KEY            = "@nexora_task_notif_ids";
+const AI_TASKS_KEY         = "@nexora_ai_saved_tasks";
+const AI_IMPORTED_IDS_KEY  = "@nexora_ai_imported_ids";
+
+interface AiSavedTask {
+  id: string;
+  title: string;
+  source: "nexora-ai";
+  goalLabel: string;
+  createdAt: string;
+}
+
+async function loadAiImportedIds(): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(AI_IMPORTED_IDS_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch { return new Set(); }
+}
+
+async function saveAiImportedIds(ids: Set<string>): Promise<void> {
+  try { await AsyncStorage.setItem(AI_IMPORTED_IDS_KEY, JSON.stringify([...ids])); } catch {}
+}
 
 interface ApiTask {
   id: string;
@@ -96,6 +119,13 @@ export default function TasksScreen() {
   const reminderTargetId = useRef<string | null>(null);
   const inputRef = useRef<TextInput>(null);
   const notifMapRef = useRef<Record<string, string>>({});
+
+  const [aiModalVisible, setAiModalVisible] = useState(false);
+  const [aiTasks, setAiTasks]               = useState<AiSavedTask[]>([]);
+  const [aiSelected, setAiSelected]         = useState<Set<string>>(new Set());
+  const [aiImporting, setAiImporting]       = useState(false);
+  const [aiSuccessCount, setAiSuccessCount] = useState(0);
+  const [aiShowSuccess, setAiShowSuccess]   = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -307,6 +337,70 @@ export default function TasksScreen() {
     reminderTargetId.current = null;
   };
 
+  const openAIImport = async () => {
+    try {
+      const [raw, importedIds] = await Promise.all([
+        AsyncStorage.getItem(AI_TASKS_KEY),
+        loadAiImportedIds(),
+      ]);
+      const all: AiSavedTask[] = raw ? JSON.parse(raw) : [];
+      const pending = all.filter((t) => !importedIds.has(t.id));
+      setAiTasks(pending);
+      setAiSelected(new Set(pending.map((t) => t.id)));
+      setAiModalVisible(true);
+    } catch {}
+  };
+
+  const toggleAiTask = (id: string) => {
+    setAiSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const doImport = async (ids: Set<string>) => {
+    if (!token || ids.size === 0) return;
+    setAiImporting(true);
+    try {
+      const toImport = aiTasks.filter((t) => ids.has(t.id));
+      const results = await Promise.all(
+        toImport.map((t) =>
+          apiFetch<{ task: ApiTask }>("/tasks", {
+            method: "POST",
+            token,
+            body: JSON.stringify({ title: t.title }),
+          }).catch(() => null)
+        )
+      );
+      const succeeded = results.filter(Boolean) as { task: ApiTask }[];
+      const importedIds = await loadAiImportedIds();
+      const newImportedIds = new Set([...importedIds, ...toImport.map((t) => t.id)]);
+      await saveAiImportedIds(newImportedIds);
+      const notifMap = notifMapRef.current;
+      setTasks((prev) => [
+        ...succeeded.map((r) => fromApi(r.task, notifMap)),
+        ...prev,
+      ]);
+      setAiModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const skipped = toImport.length - succeeded.length;
+      const msg =
+        skipped > 0
+          ? `تم استيراد ${succeeded.length} مهام. فشل ${skipped} بسبب خطأ.`
+          : `تم استيراد ${succeeded.length} ${succeeded.length === 1 ? "مهمة" : "مهام"} بنجاح ✓`;
+      setTimeout(() => {
+        // Can't call Alert here so we show a safe inline success via state — handled by success message strip
+      }, 0);
+      setAiTasks([]);
+      setAiSuccessCount(succeeded.length);
+      setAiShowSuccess(true);
+      setTimeout(() => setAiShowSuccess(false), 3000);
+    } finally {
+      setAiImporting(false);
+    }
+  };
+
   const completedCount = tasks.filter((t) => t.completed).length;
   const totalCount = tasks.length;
 
@@ -367,8 +461,17 @@ export default function TasksScreen() {
   return (
     <View style={[styles.root, { paddingTop: top }]}>
       <View style={styles.header}>
-        <View style={styles.statsChip}>
-          <Text style={[styles.statsText, { color: accent }]}>{completedCount}/{totalCount}</Text>
+        <View style={styles.headerLeft}>
+          <View style={styles.statsChip}>
+            <Text style={[styles.statsText, { color: accent }]}>{completedCount}/{totalCount}</Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.aiImportBtn, pressed && { opacity: 0.75 }]}
+            onPress={openAIImport}
+          >
+            <Feather name="cpu" size={13} color="#7C6EFA" />
+            <Text style={styles.aiImportBtnText}>استيراد من AI</Text>
+          </Pressable>
         </View>
         <Text style={styles.title}>المهام</Text>
       </View>
@@ -376,6 +479,15 @@ export default function TasksScreen() {
       {totalCount > 0 && (
         <View style={styles.progressWrap}>
           <View style={[styles.progressFill, { width: `${Math.round((completedCount / totalCount) * 100)}%` as any, backgroundColor: accent }]} />
+        </View>
+      )}
+
+      {aiShowSuccess && (
+        <View style={styles.successBanner}>
+          <Feather name="check-circle" size={15} color="#34D399" />
+          <Text style={styles.successBannerText}>
+            تم استيراد {aiSuccessCount} {aiSuccessCount === 1 ? "مهمة" : "مهام"} من Nexora AI ✓
+          </Text>
         </View>
       )}
 
@@ -403,6 +515,136 @@ export default function TasksScreen() {
       </Pressable>
 
       <BottomNav active="tasks" />
+
+      {/* ── AI Import Modal ── */}
+      <Modal visible={aiModalVisible} transparent animationType="slide" onRequestClose={() => setAiModalVisible(false)}>
+        <Pressable style={styles.overlay} onPress={() => setAiModalVisible(false)} />
+        <View style={styles.aiSheet}>
+          <View style={styles.sheetHandle} />
+
+          {/* Header */}
+          <View style={styles.aiSheetHeader}>
+            <Pressable onPress={() => setAiModalVisible(false)}>
+              <Feather name="x" size={20} color={colors.textSecondary} />
+            </Pressable>
+            <View style={styles.aiSheetTitleRow}>
+              <View style={styles.aiSheetIconWrap}>
+                <Feather name="cpu" size={14} color="#7C6EFA" />
+              </View>
+              <Text style={styles.aiSheetTitle}>استيراد من Nexora AI</Text>
+            </View>
+          </View>
+
+          {/* Content */}
+          {aiTasks.length === 0 ? (
+            <View style={styles.aiEmptyWrap}>
+              <Feather name="inbox" size={32} color={colors.placeholder} />
+              <Text style={styles.aiEmptyTitle}>لا توجد مهام جديدة</Text>
+              <Text style={styles.aiEmptySubtitle}>
+                جميع المهام المولّدة من AI تم استيرادها سابقًا.{"\n"}
+                انتقل إلى Nexora AI وحلّل هدفًا جديدًا.
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* Goal label */}
+              {aiTasks[0]?.goalLabel ? (
+                <View style={styles.aiGoalChip}>
+                  <Feather name="target" size={12} color="#7C6EFA" />
+                  <Text style={styles.aiGoalChipText} numberOfLines={1}>
+                    {aiTasks[0].goalLabel}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Select all row */}
+              <View style={styles.aiSelectAllRow}>
+                <Text style={styles.aiTaskCount}>{aiTasks.length} مهام متاحة</Text>
+                <Pressable
+                  style={styles.aiSelectAllBtn}
+                  onPress={() => {
+                    if (aiSelected.size === aiTasks.length) {
+                      setAiSelected(new Set());
+                    } else {
+                      setAiSelected(new Set(aiTasks.map((t) => t.id)));
+                    }
+                  }}
+                >
+                  <Text style={[styles.aiSelectAllText, { color: accent }]}>
+                    {aiSelected.size === aiTasks.length ? "إلغاء الكل" : "تحديد الكل"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Task list */}
+              <ScrollView style={styles.aiTaskList} showsVerticalScrollIndicator={false}>
+                {aiTasks.map((t) => {
+                  const selected = aiSelected.has(t.id);
+                  return (
+                    <Pressable
+                      key={t.id}
+                      style={({ pressed }) => [
+                        styles.aiTaskRow,
+                        selected && styles.aiTaskRowSelected,
+                        pressed && { opacity: 0.75 },
+                      ]}
+                      onPress={() => toggleAiTask(t.id)}
+                    >
+                      <View style={[
+                        styles.aiCheckbox,
+                        selected && { backgroundColor: accent, borderColor: accent },
+                      ]}>
+                        {selected && <Feather name="check" size={11} color="#FFFFFF" />}
+                      </View>
+                      <Text style={[styles.aiTaskTitle, { color: colors.text }]} numberOfLines={2}>
+                        {t.title}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Action buttons */}
+              <View style={styles.aiActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.aiActionBtn, styles.aiActionBtnSecondary,
+                    { borderColor: colors.border },
+                    (aiImporting || aiSelected.size === 0) && { opacity: 0.4 },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  onPress={() => doImport(aiSelected)}
+                  disabled={aiImporting || aiSelected.size === 0}
+                >
+                  {aiImporting ? (
+                    <ActivityIndicator size="small" color={accent} />
+                  ) : (
+                    <Text style={[styles.aiActionBtnTextSecondary, { color: colors.text }]}>
+                      استيراد المحدد ({aiSelected.size})
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.aiActionBtn,
+                    { backgroundColor: "#7C6EFA" },
+                    aiImporting && { opacity: 0.4 },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  onPress={() => doImport(new Set(aiTasks.map((t) => t.id)))}
+                  disabled={aiImporting}
+                >
+                  {aiImporting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.aiActionBtnTextPrimary}>استيراد الكل</Text>
+                  )}
+                </Pressable>
+              </View>
+            </>
+          )}
+        </View>
+      </Modal>
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={closeModal}>
         <Pressable style={styles.overlay} onPress={closeModal} />
@@ -501,6 +743,75 @@ function makeStyles(colors: ThemeColors, accent: string) {
     emptyIconWrap: { width: 64, height: 64, borderRadius: 20, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", marginBottom: 8 },
     emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.textSoft, textAlign: "center", writingDirection: "rtl" },
     emptySubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center", writingDirection: "rtl" },
+    headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+    aiImportBtn: {
+      flexDirection: "row", alignItems: "center", gap: 5,
+      backgroundColor: "#7C6EFA18", borderRadius: 10,
+      paddingHorizontal: 10, paddingVertical: 6,
+      borderWidth: 1, borderColor: "#7C6EFA33",
+    },
+    aiImportBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#7C6EFA", writingDirection: "rtl" },
+    successBanner: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 8,
+      backgroundColor: "#34D39918", borderRadius: 10,
+      paddingHorizontal: 14, paddingVertical: 10,
+      borderWidth: 1, borderColor: "#34D39933", marginBottom: 10,
+    },
+    successBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "#34D399", writingDirection: "rtl" },
+    aiSheet: {
+      position: "absolute", bottom: 0, left: 0, right: 0,
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      paddingBottom: Platform.OS === "web" ? 34 : 40,
+      borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border,
+      maxHeight: "80%",
+    },
+    aiSheetHeader: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14,
+    },
+    aiSheetTitleRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+    aiSheetIconWrap: {
+      width: 28, height: 28, borderRadius: 8,
+      backgroundColor: "#7C6EFA22", alignItems: "center", justifyContent: "center",
+    },
+    aiSheetTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: colors.text, writingDirection: "rtl" },
+    aiGoalChip: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 6,
+      backgroundColor: "#7C6EFA14", borderRadius: 10,
+      paddingHorizontal: 14, paddingVertical: 8, marginHorizontal: 20,
+      borderWidth: 1, borderColor: "#7C6EFA22", marginBottom: 12,
+    },
+    aiGoalChipText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", color: "#7C6EFA", writingDirection: "rtl" },
+    aiSelectAllRow: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: 20, marginBottom: 8,
+    },
+    aiTaskCount: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, writingDirection: "rtl" },
+    aiSelectAllBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+    aiSelectAllText: { fontSize: 13, fontFamily: "Inter_600SemiBold", writingDirection: "rtl" },
+    aiTaskList: { paddingHorizontal: 20, maxHeight: 260 },
+    aiTaskRow: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 12,
+      paddingVertical: 12, paddingHorizontal: 14,
+      borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      backgroundColor: colors.bg, marginBottom: 8,
+    },
+    aiTaskRowSelected: { borderColor: "#7C6EFA44", backgroundColor: "#7C6EFA0A" },
+    aiCheckbox: {
+      width: 22, height: 22, borderRadius: 6,
+      borderWidth: 2, borderColor: colors.placeholder,
+      alignItems: "center", justifyContent: "center", flexShrink: 0,
+    },
+    aiTaskTitle: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", writingDirection: "rtl", lineHeight: 20 },
+    aiEmptyWrap: { alignItems: "center", gap: 10, paddingVertical: 40, paddingHorizontal: 20 },
+    aiEmptyTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.textSoft, writingDirection: "rtl" },
+    aiEmptySubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center", writingDirection: "rtl", lineHeight: 20 },
+    aiActions: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingTop: 14 },
+    aiActionBtn: { flex: 1, borderRadius: 13, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
+    aiActionBtnSecondary: { backgroundColor: colors.bg, borderWidth: 1 },
+    aiActionBtnTextPrimary: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF", writingDirection: "rtl" },
+    aiActionBtnTextSecondary: { fontSize: 14, fontFamily: "Inter_600SemiBold", writingDirection: "rtl" },
     fab: { position: "absolute", bottom: Platform.OS === "web" ? 34 + 70 : 90, left: 24, width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
     fabPressed: { transform: [{ scale: 0.93 }], opacity: 0.9 },
     overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
