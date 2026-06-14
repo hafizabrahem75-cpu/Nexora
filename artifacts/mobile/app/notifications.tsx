@@ -49,6 +49,7 @@ function notifIcon(type: AppNotification["type"]): React.ComponentProps<typeof F
     case "announcement":   return "bell";
     case "post_liked":     return "heart";
     case "post_commented": return "message-square";
+    case "new_follower":   return "user-plus";
   }
 }
 
@@ -60,6 +61,7 @@ function notifIconColor(type: AppNotification["type"], accent: string): string {
     case "announcement":   return "#3B82F6";
     case "post_liked":     return "#EF4444";
     case "post_commented": return "#10B981";
+    case "new_follower":   return "#8B5CF6";
   }
 }
 

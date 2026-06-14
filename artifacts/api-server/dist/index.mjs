@@ -59101,6 +59101,22 @@ var wsManager = {
     } catch {
     }
   },
+  async notifyFollowed(params) {
+    try {
+      const [notif] = await db.insert(notificationsTable).values({
+        userId: params.followeeId,
+        type: "new_follower",
+        title: params.followerName,
+        body: "\u0628\u062F\u0623 \u0628\u0645\u062A\u0627\u0628\u0639\u062A\u0643",
+        data: { followerId: params.followerId },
+        read: false
+      }).returning();
+      if (notif) {
+        this.send(params.followeeId, { type: "notification", payload: notif });
+      }
+    } catch {
+    }
+  },
   async notifyFriendAccepted(params) {
     try {
       const [notif] = await db.insert(notificationsTable).values({
@@ -61413,6 +61429,54 @@ router3.get("/posts/following", requireAuth, async (req, res) => {
 var CreatePostBody = external_exports.object({
   content: external_exports.string().min(1).max(5e3)
 });
+var EditPostBody = external_exports.object({ content: external_exports.string().min(1).max(5e3) });
+router3.put("/posts/:id", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  const userId = req.userId;
+  const parsed = EditPostBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  try {
+    const [existing] = await db.select({ ownerId: communityPostsTable.userId }).from(communityPostsTable).where(eq(communityPostsTable.id, postId)).limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    if (existing.ownerId !== userId) {
+      res.status(403).json({ error: "\u063A\u064A\u0631 \u0645\u0635\u0631\u062D" });
+      return;
+    }
+    const [updated] = await db.update(communityPostsTable).set({ content: parsed.data.content }).where(eq(communityPostsTable.id, postId)).returning();
+    wsManager.broadcastAll({ type: "post_updated", payload: { postId, content: updated.content } });
+    res.json({ post: updated });
+  } catch (err) {
+    req.log.error(err, "editPost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.delete("/posts/:id", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  const userId = req.userId;
+  try {
+    const [existing] = await db.select({ ownerId: communityPostsTable.userId }).from(communityPostsTable).where(eq(communityPostsTable.id, postId)).limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    if (existing.ownerId !== userId) {
+      res.status(403).json({ error: "\u063A\u064A\u0631 \u0645\u0635\u0631\u062D" });
+      return;
+    }
+    await db.delete(communityPostsTable).where(eq(communityPostsTable.id, postId));
+    wsManager.broadcastAll({ type: "post_deleted", payload: { postId } });
+    res.json({ deleted: true });
+  } catch (err) {
+    req.log.error(err, "deletePost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 router3.post("/posts", requireAuth, async (req, res) => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) {
@@ -61790,7 +61854,17 @@ router5.post("/:userId", requireAuth, async (req, res) => {
     return;
   }
   try {
-    await db.insert(followsTable).values({ followerId, followeeId }).onConflictDoNothing();
+    const result = await db.insert(followsTable).values({ followerId, followeeId }).onConflictDoNothing().returning();
+    if (result.length > 0) {
+      const [follower] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, followerId)).limit(1);
+      if (follower) {
+        wsManager.notifyFollowed({
+          followeeId,
+          followerName: follower.name,
+          followerId
+        });
+      }
+    }
     res.json({ followed: true });
   } catch (err) {
     req.log.error(err, "followUser failed");

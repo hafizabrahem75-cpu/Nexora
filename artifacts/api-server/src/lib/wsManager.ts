@@ -142,6 +142,31 @@ export const wsManager = {
     }
   },
 
+  async notifyFollowed(params: {
+    followeeId: string;
+    followerName: string;
+    followerId: string;
+  }) {
+    try {
+      const [notif] = await db
+        .insert(notificationsTable)
+        .values({
+          userId: params.followeeId,
+          type: "new_follower",
+          title: params.followerName,
+          body: "بدأ بمتابعتك",
+          data: { followerId: params.followerId },
+          read: false,
+        })
+        .returning();
+      if (notif) {
+        this.send(params.followeeId, { type: "notification", payload: notif });
+      }
+    } catch {
+      // best-effort
+    }
+  },
+
   async notifyFriendAccepted(params: {
     recipientId: string;
     acceptorName: string;

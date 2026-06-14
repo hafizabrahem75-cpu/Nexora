@@ -276,15 +276,23 @@ export default function PublicProfileScreen() {
               <Text style={styles.statLabel}>صديق</Text>
             </View>
             <View style={styles.statDivider} />
-            <View style={styles.statChip}>
+            <Pressable
+              style={styles.statChip}
+              onPress={() => router.push(`/followers/${userId}` as any)}
+              hitSlop={6}
+            >
               <Text style={[styles.statValue, { color: accent }]}>{followersCount}</Text>
               <Text style={styles.statLabel}>متابع</Text>
-            </View>
+            </Pressable>
             <View style={styles.statDivider} />
-            <View style={styles.statChip}>
+            <Pressable
+              style={styles.statChip}
+              onPress={() => router.push(`/following/${userId}` as any)}
+              hitSlop={6}
+            >
               <Text style={[styles.statValue, { color: accent }]}>{stats.followingCount}</Text>
               <Text style={styles.statLabel}>يتابع</Text>
-            </View>
+            </Pressable>
           </View>
         )}
 

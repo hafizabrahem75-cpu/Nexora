@@ -1,6 +1,7 @@
 import { db, followsTable, usersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
+import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -16,10 +17,27 @@ router.post("/:userId", requireAuth, async (req: AuthRequest, res) => {
   }
 
   try {
-    await db
+    const result = await db
       .insert(followsTable)
       .values({ followerId, followeeId })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning();
+
+    // Only notify if a new follow row was actually inserted (not a duplicate)
+    if (result.length > 0) {
+      const [follower] = await db
+        .select({ name: usersTable.name })
+        .from(usersTable)
+        .where(eq(usersTable.id, followerId))
+        .limit(1);
+      if (follower) {
+        wsManager.notifyFollowed({
+          followeeId,
+          followerName: follower.name,
+          followerId,
+        });
+      }
+    }
 
     res.json({ followed: true });
   } catch (err) {

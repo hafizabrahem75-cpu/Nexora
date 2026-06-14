@@ -4,9 +4,11 @@ import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -113,6 +115,11 @@ export default function CommunityScreen() {
   const [openPostId, setOpenPostId]         = useState<string | null>(null);
   // Following-feed metadata
   const [followingCount, setFollowingCount] = useState(0);
+  // Post management
+  const [menuPostId, setMenuPostId]         = useState<string | null>(null);
+  const [editingPost, setEditingPost]       = useState<{ id: string; content: string } | null>(null);
+  const [editSaving, setEditSaving]         = useState(false);
+  const editInputRef = useRef<TextInput>(null);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -182,14 +189,18 @@ export default function CommunityScreen() {
     [feedMode, token, loadPosts],
   );
 
-  // ── Real-time like updates ─────────────────────────────────────────────────
+  // ── Real-time post updates ─────────────────────────────────────────────────
   useEffect(() => {
     const remove = addWsListener((event) => {
       if (event.type === "post_liked") {
         const { postId, likesCount } = event.payload as { postId: string; likesCount: number };
-        setPosts((prev) =>
-          prev.map((p) => (p.id === postId ? { ...p, likesCount } : p))
-        );
+        setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, likesCount } : p)));
+      } else if (event.type === "post_deleted") {
+        const { postId } = event.payload as { postId: string };
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+      } else if (event.type === "post_updated") {
+        const { postId, content } = event.payload as { postId: string; content: string };
+        setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, content } : p)));
       }
     });
     return remove;
@@ -201,6 +212,60 @@ export default function CommunityScreen() {
       prev.map((p) => (p.id === postId ? { ...p, commentsCount } : p))
     );
   }, []);
+
+  // ── Delete post ───────────────────────────────────────────────────────────
+  const deletePost = useCallback((postId: string) => {
+    Alert.alert(
+      "حذف المنشور",
+      "هل أنت متأكد من حذف هذا المنشور؟ لا يمكن التراجع.",
+      [
+        { text: "إلغاء", style: "cancel" },
+        {
+          text: "حذف",
+          style: "destructive",
+          onPress: async () => {
+            if (!token) return;
+            // Optimistic: remove immediately
+            setPosts((prev) => prev.filter((p) => p.id !== postId));
+            setMenuPostId(null);
+            try {
+              await apiFetch(`/community/posts/${postId}`, { method: "DELETE", token });
+            } catch {
+              // WS broadcast will re-sync; no rollback needed for delete
+            }
+          },
+        },
+      ],
+    );
+  }, [token]);
+
+  // ── Edit post ─────────────────────────────────────────────────────────────
+  const openEdit = useCallback((post: Post) => {
+    setMenuPostId(null);
+    setEditingPost({ id: post.id, content: post.content });
+    setTimeout(() => editInputRef.current?.focus(), 150);
+  }, []);
+
+  const submitEdit = useCallback(async () => {
+    if (!editingPost || !token || editSaving) return;
+    const content = editingPost.content.trim();
+    if (!content) return;
+    setEditSaving(true);
+    try {
+      await apiFetch(`/community/posts/${editingPost.id}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ content }),
+      });
+      // WS broadcast will update the post in the feed
+      setEditingPost(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      // silent
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editingPost, token, editSaving]);
 
   // ── Toggle like (optimistic) ───────────────────────────────────────────────
   const toggleLike = useCallback(async (postId: string, isLiked: boolean) => {
@@ -256,57 +321,93 @@ export default function CommunityScreen() {
   };
 
   // ── Post card ─────────────────────────────────────────────────────────────
-  const renderPost = useCallback(({ item }: { item: Post }) => (
-    <View style={styles.postCard}>
-      {/* Header */}
-      <View style={styles.postHeader}>
-        <View style={styles.postMeta}>
-          <Text style={styles.postDate}>{formatRelativeDate(item.createdAt)}</Text>
+  const renderPost = useCallback(({ item }: { item: Post }) => {
+    const isOwn = item.author.id === user?.id;
+    const menuOpen = menuPostId === item.id;
+    return (
+      <View style={styles.postCard}>
+        {/* Header */}
+        <View style={styles.postHeader}>
+          <View style={styles.postMeta}>
+            <Text style={styles.postDate}>{formatRelativeDate(item.createdAt)}</Text>
+            <Pressable
+              style={styles.postAuthorInfo}
+              onPress={() => router.push(`/profile/${item.author.id}` as any)}
+              hitSlop={6}
+            >
+              <Text style={styles.postAuthorName}>{item.author.name}</Text>
+              <Text style={styles.postAuthorHandle}>@{item.author.username}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.postHeaderRight}>
+            {isOwn && (
+              <Pressable
+                onPress={() => setMenuPostId(menuOpen ? null : item.id)}
+                hitSlop={8}
+                style={styles.moreBtn}
+              >
+                <Feather name="more-horizontal" size={16} color={colors.placeholder} />
+              </Pressable>
+            )}
+            <Pressable onPress={() => router.push(`/profile/${item.author.id}` as any)} hitSlop={6}>
+              <Avatar author={item.author} size={38} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Content */}
+        <Text style={styles.postContent}>{item.content}</Text>
+
+        {/* Footer */}
+        <View style={styles.postFooter}>
           <Pressable
-            style={styles.postAuthorInfo}
-            onPress={() => router.push(`/profile/${item.author.id}` as any)}
-            hitSlop={6}
+            style={styles.postStat}
+            onPress={() => setOpenPostId(item.id)}
+            hitSlop={8}
           >
-            <Text style={styles.postAuthorName}>{item.author.name}</Text>
-            <Text style={styles.postAuthorHandle}>@{item.author.username}</Text>
+            <Feather name="message-circle" size={14} color={colors.placeholder} />
+            <Text style={styles.postStatText}>{item.commentsCount}</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.postStat}
+            onPress={() => toggleLike(item.id, item.isLiked)}
+            hitSlop={8}
+          >
+            <Feather
+              name="heart"
+              size={14}
+              color={item.isLiked ? "#EF4444" : colors.placeholder}
+            />
+            <Text style={[styles.postStatText, item.isLiked && styles.postStatLiked]}>
+              {item.likesCount}
+            </Text>
           </Pressable>
         </View>
-        <Pressable onPress={() => router.push(`/profile/${item.author.id}` as any)} hitSlop={6}>
-          <Avatar author={item.author} size={38} />
-        </Pressable>
+
+        {/* Inline post actions (own posts only) */}
+        {menuOpen && (
+          <View style={styles.postMenu}>
+            <Pressable
+              style={styles.postMenuItem}
+              onPress={() => openEdit(item)}
+            >
+              <Feather name="edit-2" size={14} color={colors.textSoft} />
+              <Text style={styles.postMenuText}>تعديل</Text>
+            </Pressable>
+            <View style={styles.postMenuDivider} />
+            <Pressable
+              style={styles.postMenuItem}
+              onPress={() => deletePost(item.id)}
+            >
+              <Feather name="trash-2" size={14} color="#EF4444" />
+              <Text style={[styles.postMenuText, { color: "#EF4444" }]}>حذف</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
-
-      {/* Content */}
-      <Text style={styles.postContent}>{item.content}</Text>
-
-      {/* Footer */}
-      <View style={styles.postFooter}>
-        <Pressable
-          style={styles.postStat}
-          onPress={() => setOpenPostId(item.id)}
-          hitSlop={8}
-        >
-          <Feather name="message-circle" size={14} color={colors.placeholder} />
-          <Text style={styles.postStatText}>{item.commentsCount}</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.postStat}
-          onPress={() => toggleLike(item.id, item.isLiked)}
-          hitSlop={8}
-        >
-          <Feather
-            name="heart"
-            size={14}
-            color={item.isLiked ? "#EF4444" : colors.placeholder}
-          />
-          <Text style={[styles.postStatText, item.isLiked && styles.postStatLiked]}>
-            {item.likesCount}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  ), [styles, colors, toggleLike]);
+    );
+  }, [styles, colors, user?.id, menuPostId, toggleLike, openEdit, deletePost]);
 
   // ── Composer (list header) ────────────────────────────────────────────────
   const ListHeader = (
@@ -461,6 +562,59 @@ export default function CommunityScreen() {
         onClose={() => setOpenPostId(null)}
         onCommentsCountChange={handleCommentsCountChange}
       />
+
+      {/* ── Edit Post Modal ──────────────────────────────────────────────── */}
+      <Modal
+        visible={!!editingPost}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditingPost(null)}
+      >
+        <Pressable style={styles.editOverlay} onPress={() => setEditingPost(null)} />
+        <KeyboardAvoidingView
+          style={styles.editSheetWrap}
+          behavior={Platform.OS === "ios" ? "position" : "height"}
+        >
+          <View style={styles.editSheet}>
+            <View style={styles.editHandle} />
+            <Text style={styles.editTitle}>تعديل المنشور</Text>
+            <TextInput
+              ref={editInputRef}
+              style={styles.editInput}
+              value={editingPost?.content ?? ""}
+              onChangeText={(t) => setEditingPost((prev) => prev ? { ...prev, content: t } : prev)}
+              placeholder="اكتب محتوى المنشور..."
+              placeholderTextColor={colors.placeholder}
+              textAlign="right"
+              multiline
+              maxLength={5000}
+              textAlignVertical="top"
+            />
+            <Text style={styles.editCount}>{(editingPost?.content ?? "").length}/5000</Text>
+            <View style={styles.editActions}>
+              <Pressable
+                style={[styles.editBtn, styles.editCancelBtn]}
+                onPress={() => setEditingPost(null)}
+              >
+                <Text style={styles.editCancelText}>إلغاء</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.editBtn,
+                  { backgroundColor: COMMUNITY_COLOR },
+                  (!editingPost?.content.trim() || editSaving) && { opacity: 0.4 },
+                ]}
+                onPress={submitEdit}
+                disabled={!editingPost?.content.trim() || editSaving}
+              >
+                {editSaving
+                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  : <Text style={styles.editSaveText}>حفظ</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -530,6 +684,8 @@ function makeStyles(colors: ThemeColors) {
       padding: 14, gap: 10,
     },
     postHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+    postHeaderRight: { flexDirection: "column", alignItems: "center", gap: 6 },
+    moreBtn: { padding: 2 },
     postMeta: { flex: 1, alignItems: "flex-end", gap: 2, paddingRight: 10 },
     postAuthorInfo: { flexDirection: "row-reverse", alignItems: "center", gap: 6 },
     postAuthorName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.text, writingDirection: "rtl" },
@@ -540,6 +696,20 @@ function makeStyles(colors: ThemeColors) {
       color: colors.textSoft, writingDirection: "rtl",
       lineHeight: 22, textAlign: "right",
     },
+    postMenu: {
+      borderTopWidth: 1, borderTopColor: colors.border,
+      flexDirection: "row", paddingTop: 8,
+    },
+    postMenuItem: {
+      flex: 1, flexDirection: "row-reverse", alignItems: "center",
+      justifyContent: "center", gap: 6, paddingVertical: 6,
+    },
+    postMenuDivider: { width: 1, backgroundColor: colors.border, marginVertical: 2 },
+    postMenuText: {
+      fontSize: 13, fontFamily: "Inter_500Medium",
+      color: colors.textSoft, writingDirection: "rtl",
+    },
+
     postFooter: { flexDirection: "row", gap: 16, paddingTop: 2 },
     postStat: { flexDirection: "row-reverse", alignItems: "center", gap: 5 },
     postStatText: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.placeholder },
@@ -558,5 +728,41 @@ function makeStyles(colors: ThemeColors) {
       paddingHorizontal: 20, paddingVertical: 9,
     },
     discoverBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", writingDirection: "rtl" },
+
+    editOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.7)" },
+    editSheetWrap: { position: "absolute", bottom: 0, left: 0, right: 0 },
+    editSheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      paddingTop: 12, paddingBottom: Platform.OS === "web" ? 34 : 44,
+      paddingHorizontal: 20,
+      borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border,
+    },
+    editHandle: {
+      width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border,
+      alignSelf: "center", marginBottom: 18,
+    },
+    editTitle: {
+      fontSize: 18, fontFamily: "Inter_700Bold", color: colors.text,
+      textAlign: "right", writingDirection: "rtl", marginBottom: 14,
+    },
+    editInput: {
+      backgroundColor: colors.bg, borderRadius: 12,
+      borderWidth: 1, borderColor: colors.border,
+      paddingHorizontal: 16, paddingVertical: 13,
+      fontSize: 14, fontFamily: "Inter_400Regular", color: colors.text,
+      minHeight: 100, maxHeight: 200,
+      writingDirection: "rtl", textAlign: "right",
+      marginBottom: 6,
+    },
+    editCount: {
+      fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary,
+      textAlign: "left", marginBottom: 16,
+    },
+    editActions: { flexDirection: "row", gap: 10 },
+    editBtn: { flex: 1, borderRadius: 13, paddingVertical: 15, alignItems: "center" },
+    editCancelBtn: { backgroundColor: colors.border },
+    editCancelText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.textSoft, writingDirection: "rtl" },
+    editSaveText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#FFFFFF", writingDirection: "rtl" },
   });
 }

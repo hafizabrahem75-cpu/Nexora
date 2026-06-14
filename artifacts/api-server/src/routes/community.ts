@@ -112,6 +112,61 @@ const CreatePostBody = z.object({
   content: z.string().min(1).max(5000),
 });
 
+// ─── PUT /community/posts/:id ────────────────────────────────────────────────
+const EditPostBody = z.object({ content: z.string().min(1).max(5000) });
+
+router.put("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id;
+  const userId  = req.userId!;
+  const parsed  = EditPostBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "بيانات غير صالحة" }); return; }
+  try {
+    const [existing] = await db
+      .select({ ownerId: communityPostsTable.userId })
+      .from(communityPostsTable)
+      .where(eq(communityPostsTable.id, postId))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "المنشور غير موجود" }); return; }
+    if (existing.ownerId !== userId) { res.status(403).json({ error: "غير مصرح" }); return; }
+
+    const [updated] = await db
+      .update(communityPostsTable)
+      .set({ content: parsed.data.content })
+      .where(eq(communityPostsTable.id, postId))
+      .returning();
+
+    wsManager.broadcastAll({ type: "post_updated", payload: { postId, content: updated!.content } });
+    res.json({ post: updated });
+  } catch (err) {
+    req.log.error(err, "editPost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── DELETE /community/posts/:id ─────────────────────────────────────────────
+router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id;
+  const userId  = req.userId!;
+  try {
+    const [existing] = await db
+      .select({ ownerId: communityPostsTable.userId })
+      .from(communityPostsTable)
+      .where(eq(communityPostsTable.id, postId))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "المنشور غير موجود" }); return; }
+    if (existing.ownerId !== userId) { res.status(403).json({ error: "غير مصرح" }); return; }
+
+    await db.delete(communityPostsTable).where(eq(communityPostsTable.id, postId));
+    // post_likes and post_comments cascade automatically
+    wsManager.broadcastAll({ type: "post_deleted", payload: { postId } });
+    res.json({ deleted: true });
+  } catch (err) {
+    req.log.error(err, "deletePost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── POST /community/posts ────────────────────────────────────────────────────
 router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) {
