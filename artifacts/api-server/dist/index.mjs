@@ -61084,6 +61084,10 @@ async function requireAuth(req, res, next) {
       res.status(401).json({ error: "\u0627\u0644\u062C\u0644\u0633\u0629 \u0645\u0646\u062A\u0647\u064A\u0629 \u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0629 \u2014 \u064A\u0631\u062C\u0649 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u062C\u062F\u062F\u0627\u064B" });
       return;
     }
+    if (row.user.suspendedAt) {
+      res.status(403).json({ error: "account_suspended" });
+      return;
+    }
     req.userId = row.userId;
     req.user = row.user;
     next();
@@ -66621,6 +66625,18 @@ var routes_default = router14;
 
 // src/app.ts
 var app = (0, import_express15.default)();
+var ALLOWED_ORIGINS = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
+  /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/
+];
+if (process.env["REPLIT_DEV_DOMAIN"]) {
+  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
+}
+if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
+  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
+}
 var authLimiter = rate_limit_default({
   windowMs: 15 * 60 * 1e3,
   max: 10,
@@ -66650,7 +66666,23 @@ app.use(
     }
   })
 );
-app.use((0, import_cors.default)());
+app.use((0, import_cors.default)({
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const allowed = ALLOWED_ORIGINS.some(
+      (o) => typeof o === "string" ? o === origin : o.test(origin)
+    );
+    if (allowed) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true
+}));
 app.use(import_express15.default.json());
 app.use(import_express15.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);

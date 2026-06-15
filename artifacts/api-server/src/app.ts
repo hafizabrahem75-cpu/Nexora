@@ -7,6 +7,19 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+const ALLOWED_ORIGINS: (string | RegExp)[] = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
+  /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/,
+];
+if (process.env["REPLIT_DEV_DOMAIN"]) {
+  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
+}
+if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
+  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
+}
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -38,7 +51,20 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) { callback(null, true); return; }
+    const allowed = ALLOWED_ORIGINS.some((o) =>
+      typeof o === "string" ? o === origin : o.test(origin),
+    );
+    if (allowed) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

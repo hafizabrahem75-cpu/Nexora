@@ -61,6 +61,11 @@ export async function requireAuth(
       return;
     }
 
+    if (row.user.suspendedAt) {
+      res.status(403).json({ error: "account_suspended" });
+      return;
+    }
+
     req.userId = row.userId;
     req.user = row.user as PublicUser;
     next();
