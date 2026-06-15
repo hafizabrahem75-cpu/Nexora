@@ -1,11 +1,42 @@
 import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, usersTable } from "@workspace/db";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod/v4";
 import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
+
+const byUser = (req: Express.Request) =>
+  (req as AuthRequest).userId ?? req.ip ?? "unknown";
+
+const postLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: byUser,
+  message: { error: "وصلت إلى الحد الأقصى للمنشورات (10 في الساعة)، حاول لاحقاً" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const commentLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  keyGenerator: byUser,
+  message: { error: "وصلت إلى الحد الأقصى للتعليقات (30 في الساعة)، حاول لاحقاً" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const likeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  keyGenerator: byUser,
+  message: { error: "طلبات إعجاب كثيرة جداً، يرجى المحاولة بعد قليل" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ─── GET /community/posts ─────────────────────────────────────────────────────
 router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
@@ -167,7 +198,7 @@ router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── POST /community/posts ────────────────────────────────────────────────────
-router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
+router.post("/posts", requireAuth, postLimiter, async (req: AuthRequest, res) => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "بيانات غير صالحة" });
@@ -203,7 +234,7 @@ router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── POST /community/posts/:id/like ──────────────────────────────────────────
-router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
+router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
     const inserted = await db
@@ -250,7 +281,7 @@ router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /community/posts/:id/like ────────────────────────────────────────
-router.delete("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
+router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
     const deleted = await db
@@ -321,7 +352,7 @@ const CreateCommentBody = z.object({
   content: z.string().min(1).max(2000),
 });
 
-router.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
+router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   const parsed = CreateCommentBody.safeParse(req.body);
   if (!parsed.success) {

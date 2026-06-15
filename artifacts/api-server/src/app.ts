@@ -28,9 +28,18 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { error: "طلبات كثيرة جداً، يرجى المحاولة بعد قليل" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api", generalApiLimiter);
 
 app.use(
   pinoHttp({

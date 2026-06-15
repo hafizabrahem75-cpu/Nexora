@@ -1,13 +1,23 @@
 import { db, followsTable, usersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
+const followLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => (req as AuthRequest).userId ?? req.ip ?? "unknown",
+  message: { error: "طلبات متابعة كثيرة جداً، يرجى المحاولة بعد قليل" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ─── POST /follows/:userId — follow a user ────────────────────────────────────
-router.post("/:userId", requireAuth, async (req: AuthRequest, res) => {
+router.post("/:userId", requireAuth, followLimiter, async (req: AuthRequest, res) => {
   const followeeId = req.params["userId"] as string;
   const followerId = req.userId!;
 
@@ -47,7 +57,7 @@ router.post("/:userId", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /follows/:userId — unfollow a user ────────────────────────────────
-router.delete("/:userId", requireAuth, async (req: AuthRequest, res) => {
+router.delete("/:userId", requireAuth, followLimiter, async (req: AuthRequest, res) => {
   const followeeId = req.params["userId"] as string;
   const followerId = req.userId!;
 

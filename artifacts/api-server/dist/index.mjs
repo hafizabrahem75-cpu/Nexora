@@ -61363,6 +61363,31 @@ var auth_default = router2;
 // src/routes/community.ts
 var import_express3 = __toESM(require_express2(), 1);
 var router3 = (0, import_express3.Router)();
+var byUser = (req) => req.userId ?? req.ip ?? "unknown";
+var postLimiter = rate_limit_default({
+  windowMs: 60 * 60 * 1e3,
+  max: 10,
+  keyGenerator: byUser,
+  message: { error: "\u0648\u0635\u0644\u062A \u0625\u0644\u0649 \u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0644\u0644\u0645\u0646\u0634\u0648\u0631\u0627\u062A (10 \u0641\u064A \u0627\u0644\u0633\u0627\u0639\u0629)\u060C \u062D\u0627\u0648\u0644 \u0644\u0627\u062D\u0642\u0627\u064B" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var commentLimiter = rate_limit_default({
+  windowMs: 60 * 60 * 1e3,
+  max: 30,
+  keyGenerator: byUser,
+  message: { error: "\u0648\u0635\u0644\u062A \u0625\u0644\u0649 \u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0644\u0644\u062A\u0639\u0644\u064A\u0642\u0627\u062A (30 \u0641\u064A \u0627\u0644\u0633\u0627\u0639\u0629)\u060C \u062D\u0627\u0648\u0644 \u0644\u0627\u062D\u0642\u0627\u064B" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var likeLimiter = rate_limit_default({
+  windowMs: 15 * 60 * 1e3,
+  max: 100,
+  keyGenerator: byUser,
+  message: { error: "\u0637\u0644\u0628\u0627\u062A \u0625\u0639\u062C\u0627\u0628 \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 router3.get("/posts", requireAuth, async (req, res) => {
   try {
     const rows = await db.select({
@@ -61481,7 +61506,7 @@ router3.delete("/posts/:id", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router3.post("/posts", requireAuth, async (req, res) => {
+router3.post("/posts", requireAuth, postLimiter, async (req, res) => {
   const parsed = CreatePostBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
@@ -61510,7 +61535,7 @@ router3.post("/posts", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router3.post("/posts/:id/like", requireAuth, async (req, res) => {
+router3.post("/posts/:id/like", requireAuth, likeLimiter, async (req, res) => {
   const postId = req.params.id;
   try {
     const inserted = await db.insert(postLikesTable).values({ userId: req.userId, postId }).onConflictDoNothing().returning();
@@ -61538,7 +61563,7 @@ router3.post("/posts/:id/like", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router3.delete("/posts/:id/like", requireAuth, async (req, res) => {
+router3.delete("/posts/:id/like", requireAuth, likeLimiter, async (req, res) => {
   const postId = req.params.id;
   try {
     const deleted = await db.delete(postLikesTable).where(
@@ -61584,7 +61609,7 @@ router3.get("/posts/:id/comments", requireAuth, async (req, res) => {
 var CreateCommentBody = external_exports.object({
   content: external_exports.string().min(1).max(2e3)
 });
-router3.post("/posts/:id/comments", requireAuth, async (req, res) => {
+router3.post("/posts/:id/comments", requireAuth, commentLimiter, async (req, res) => {
   const postId = req.params.id;
   const parsed = CreateCommentBody.safeParse(req.body);
   if (!parsed.success) {
@@ -61850,7 +61875,15 @@ var conversations_default = router4;
 // src/routes/follows.ts
 var import_express5 = __toESM(require_express2(), 1);
 var router5 = (0, import_express5.Router)();
-router5.post("/:userId", requireAuth, async (req, res) => {
+var followLimiter = rate_limit_default({
+  windowMs: 15 * 60 * 1e3,
+  max: 30,
+  keyGenerator: (req) => req.userId ?? req.ip ?? "unknown",
+  message: { error: "\u0637\u0644\u0628\u0627\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+router5.post("/:userId", requireAuth, followLimiter, async (req, res) => {
   const followeeId = req.params["userId"];
   const followerId = req.userId;
   if (followerId === followeeId) {
@@ -61875,7 +61908,7 @@ router5.post("/:userId", requireAuth, async (req, res) => {
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
-router5.delete("/:userId", requireAuth, async (req, res) => {
+router5.delete("/:userId", requireAuth, followLimiter, async (req, res) => {
   const followeeId = req.params["userId"];
   const followerId = req.userId;
   try {
@@ -66644,9 +66677,17 @@ var authLimiter = rate_limit_default({
   standardHeaders: true,
   legacyHeaders: false
 });
+var generalApiLimiter = rate_limit_default({
+  windowMs: 15 * 60 * 1e3,
+  max: 300,
+  message: { error: "\u0637\u0644\u0628\u0627\u062A \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api", generalApiLimiter);
 app.use(
   (0, import_pino_http.default)({
     logger,
