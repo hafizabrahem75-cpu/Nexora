@@ -122,6 +122,23 @@ export declare const usersTable: import("drizzle-orm/pg-core").PgTableWithColumn
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        bio: import("drizzle-orm/pg-core").PgColumn<{
+            name: "bio";
+            tableName: "users";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         emailVerified: import("drizzle-orm/pg-core").PgColumn<{
             name: "email_verified";
             tableName: "users";
@@ -173,6 +190,40 @@ export declare const usersTable: import("drizzle-orm/pg-core").PgTableWithColumn
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        isDeveloper: import("drizzle-orm/pg-core").PgColumn<{
+            name: "is_developer";
+            tableName: "users";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        suspendedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "suspended_at";
+            tableName: "users";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "users";
@@ -217,9 +268,12 @@ export declare const publicUserSchema: z.ZodObject<{
     username: z.ZodNullable<z.ZodString>;
     avatarColor: z.ZodString;
     avatarImageUri: z.ZodNullable<z.ZodString>;
+    bio: z.ZodNullable<z.ZodString>;
     emailVerified: z.ZodBoolean;
     profileVisibility: z.ZodString;
     messagingPrivacy: z.ZodString;
+    isDeveloper: z.ZodBoolean;
+    suspendedAt: z.ZodNullable<z.ZodDate>;
     createdAt: z.ZodDate;
     updatedAt: z.ZodDate;
 }, {

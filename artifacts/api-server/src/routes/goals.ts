@@ -73,7 +73,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
     const [goal] = await db
       .update(goalsTable)
       .set(updates)
-      .where(and(eq(goalsTable.id, req.params.id), eq(goalsTable.userId, req.userId!)))
+      .where(and(eq(goalsTable.id, req.params.id as string), eq(goalsTable.userId, req.userId!)))
       .returning();
 
     if (!goal) {
@@ -92,7 +92,7 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
   try {
     const [deleted] = await db
       .delete(goalsTable)
-      .where(and(eq(goalsTable.id, req.params.id), eq(goalsTable.userId, req.userId!)))
+      .where(and(eq(goalsTable.id, req.params.id as string), eq(goalsTable.userId, req.userId!)))
       .returning({ id: goalsTable.id });
 
     if (!deleted) {

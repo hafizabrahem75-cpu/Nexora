@@ -14,10 +14,10 @@ Notifications.setNotificationHandler({
 export async function requestPermission(): Promise<boolean> {
   if (Platform.OS === "web") return false;
   try {
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    if (existing === "granted") return true;
-    const { status } = await Notifications.requestPermissionsAsync();
-    return status === "granted";
+    const existingPerms = await Notifications.getPermissionsAsync();
+    if ((existingPerms as unknown as { granted: boolean }).granted) return true;
+    const newPerms = await Notifications.requestPermissionsAsync();
+    return (newPerms as unknown as { granted: boolean }).granted;
   } catch {
     return false;
   }

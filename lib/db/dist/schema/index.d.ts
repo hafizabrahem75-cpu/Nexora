@@ -8,4 +8,12 @@ export * from "./conversations";
 export * from "./conversation_participants";
 export * from "./messages";
 export * from "./support_submissions";
+export * from "./notifications";
+export * from "./tasks";
+export * from "./goals";
+export * from "./notes";
+export * from "./community_posts";
+export * from "./post_likes";
+export * from "./post_comments";
+export * from "./follows";
 //# sourceMappingURL=index.d.ts.map

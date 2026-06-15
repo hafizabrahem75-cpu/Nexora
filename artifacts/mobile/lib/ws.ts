@@ -11,7 +11,9 @@ export type WsEventType =
   | "friend_accepted"
   | "notification"
   | "post_liked"
-  | "post_commented";
+  | "post_commented"
+  | "post_deleted"
+  | "post_updated";
 
 export interface WsEvent {
   type: WsEventType;

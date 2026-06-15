@@ -59,7 +59,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
     const [note] = await db
       .update(notesTable)
       .set({ content: parsed.data.content, updatedAt: new Date() })
-      .where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, req.userId!)))
+      .where(and(eq(notesTable.id, req.params.id as string), eq(notesTable.userId, req.userId!)))
       .returning();
 
     if (!note) {
@@ -78,7 +78,7 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
   try {
     const [deleted] = await db
       .delete(notesTable)
-      .where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, req.userId!)))
+      .where(and(eq(notesTable.id, req.params.id as string), eq(notesTable.userId, req.userId!)))
       .returning({ id: notesTable.id });
 
     if (!deleted) {

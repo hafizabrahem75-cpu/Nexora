@@ -116,7 +116,7 @@ const CreatePostBody = z.object({
 const EditPostBody = z.object({ content: z.string().min(1).max(5000) });
 
 router.put("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   const userId  = req.userId!;
   const parsed  = EditPostBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "بيانات غير صالحة" }); return; }
@@ -145,7 +145,7 @@ router.put("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── DELETE /community/posts/:id ─────────────────────────────────────────────
 router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   const userId  = req.userId!;
   try {
     const [existing] = await db
@@ -204,7 +204,7 @@ router.post("/posts", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── POST /community/posts/:id/like ──────────────────────────────────────────
 router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   try {
     const inserted = await db
       .insert(postLikesTable)
@@ -251,7 +251,7 @@ router.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── DELETE /community/posts/:id/like ────────────────────────────────────────
 router.delete("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   try {
     const deleted = await db
       .delete(postLikesTable)
@@ -288,7 +288,7 @@ router.delete("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── GET /community/posts/:id/comments ───────────────────────────────────────
 router.get("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   try {
     const rows = await db
       .select({
@@ -322,7 +322,7 @@ const CreateCommentBody = z.object({
 });
 
 router.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
-  const postId = req.params.id;
+  const postId = req.params.id as string;
   const parsed = CreateCommentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "بيانات غير صالحة" });
