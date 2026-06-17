@@ -66786,6 +66786,7 @@ var ALLOWED_ORIGINS = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
   /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
+  /^https:\/\/[a-zA-Z0-9-]+\.expo\.sisko\.replit\.dev$/,
   /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/
 ];
 if (process.env["REPLIT_DEV_DOMAIN"]) {
@@ -66794,24 +66795,39 @@ if (process.env["REPLIT_DEV_DOMAIN"]) {
 if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
   ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
 }
+app.use((0, import_cors.default)({
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const allowed = ALLOWED_ORIGINS.some(
+      (o) => typeof o === "string" ? o === origin : o.test(origin)
+    );
+    if (allowed) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true
+}));
 var authLimiter = rate_limit_default({
   windowMs: 15 * 60 * 1e3,
   max: 10,
   message: { error: "\u0645\u062D\u0627\u0648\u0644\u0627\u062A \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F 15 \u062F\u0642\u064A\u0642\u0629" },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS"
 });
 var generalApiLimiter = rate_limit_default({
   windowMs: 15 * 60 * 1e3,
   max: 300,
   message: { error: "\u0637\u0644\u0628\u0627\u062A \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS"
 });
-app.use("/api/auth/login", authLimiter);
-app.use("/api/auth/register", authLimiter);
-app.use("/api/auth/forgot-password", authLimiter);
-app.use("/api", generalApiLimiter);
 app.use(
   (0, import_pino_http.default)({
     logger,
@@ -66831,23 +66847,10 @@ app.use(
     }
   })
 );
-app.use((0, import_cors.default)({
-  origin: (origin, callback) => {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    const allowed = ALLOWED_ORIGINS.some(
-      (o) => typeof o === "string" ? o === origin : o.test(origin)
-    );
-    if (allowed) {
-      callback(null, true);
-    } else {
-      callback(null, false);
-    }
-  },
-  credentials: true
-}));
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api", generalApiLimiter);
 app.use(import_express15.default.json());
 app.use(import_express15.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
