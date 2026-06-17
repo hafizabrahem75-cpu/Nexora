@@ -46374,7 +46374,9 @@ __export(schema_exports, {
   passwordResetTokensTable: () => passwordResetTokensTable,
   postCommentsTable: () => postCommentsTable,
   postLikesTable: () => postLikesTable,
+  postReportsTable: () => postReportsTable,
   publicUserSchema: () => publicUserSchema,
+  savedPostsTable: () => savedPostsTable,
   sessionsTable: () => sessionsTable,
   supportSubmissionsTable: () => supportSubmissionsTable,
   tasksTable: () => tasksTable,
@@ -58005,6 +58007,30 @@ var followsTable = pgTable("follows", {
   index("follows_followee_id_idx").on(t.followeeId)
 ]);
 
+// ../../lib/db/src/schema/saved_posts.ts
+var savedPostsTable = pgTable("saved_posts", {
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  postId: uuid("post_id").notNull().references(() => communityPostsTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow()
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.postId] }),
+  index("saved_posts_user_id_idx").on(t.userId),
+  index("saved_posts_post_id_idx").on(t.postId)
+]);
+
+// ../../lib/db/src/schema/post_reports.ts
+var postReportsTable = pgTable("post_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  postId: uuid("post_id").notNull().references(() => communityPostsTable.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow()
+}, (t) => [
+  unique("post_reports_unique_user_post").on(t.userId, t.postId),
+  index("post_reports_post_id_idx").on(t.postId),
+  index("post_reports_user_id_idx").on(t.userId)
+]);
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -61363,7 +61389,7 @@ var auth_default = router2;
 // src/routes/community.ts
 var import_express3 = __toESM(require_express2(), 1);
 var router3 = (0, import_express3.Router)();
-var byUser = (req) => req.userId ?? req.ip ?? "unknown";
+var byUser = (req) => req.userId ?? "anonymous";
 var postLimiter = rate_limit_default({
   windowMs: 60 * 60 * 1e3,
   max: 10,
@@ -61385,6 +61411,22 @@ var likeLimiter = rate_limit_default({
   max: 100,
   keyGenerator: byUser,
   message: { error: "\u0637\u0644\u0628\u0627\u062A \u0625\u0639\u062C\u0627\u0628 \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var saveLimiter = rate_limit_default({
+  windowMs: 15 * 60 * 1e3,
+  max: 50,
+  keyGenerator: byUser,
+  message: { error: "\u0637\u0644\u0628\u0627\u062A \u062D\u0641\u0638 \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var reportLimiter = rate_limit_default({
+  windowMs: 60 * 60 * 1e3,
+  max: 10,
+  keyGenerator: byUser,
+  message: { error: "\u0648\u0635\u0644\u062A \u0625\u0644\u0649 \u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0644\u0644\u0628\u0644\u0627\u063A\u0627\u062A (10 \u0641\u064A \u0627\u0644\u0633\u0627\u0639\u0629)\u060C \u062D\u0627\u0648\u0644 \u0644\u0627\u062D\u0642\u0627\u064B" },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -61650,6 +61692,53 @@ router3.post("/posts/:id/comments", requireAuth, commentLimiter, async (req, res
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
+router3.post("/posts/:id/save", requireAuth, saveLimiter, async (req, res) => {
+  const postId = req.params.id;
+  try {
+    await db.insert(savedPostsTable).values({ userId: req.userId, postId }).onConflictDoNothing();
+    res.json({ saved: true });
+  } catch (err) {
+    req.log.error(err, "savePost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.delete("/posts/:id/save", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  try {
+    await db.delete(savedPostsTable).where(and(eq(savedPostsTable.userId, req.userId), eq(savedPostsTable.postId, postId)));
+    res.json({ saved: false });
+  } catch (err) {
+    req.log.error(err, "unsavePost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+var ReportBody = external_exports.object({
+  reason: external_exports.enum(["spam", "harassment", "inappropriate", "misinformation", "other"])
+});
+router3.post("/posts/:id/report", requireAuth, reportLimiter, async (req, res) => {
+  const postId = req.params.id;
+  const parsed = ReportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0633\u0628\u0628 \u0627\u0644\u0628\u0644\u0627\u063A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D" });
+    return;
+  }
+  try {
+    const [post] = await db.select({ id: communityPostsTable.id }).from(communityPostsTable).where(eq(communityPostsTable.id, postId)).limit(1);
+    if (!post) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    const inserted = await db.insert(postReportsTable).values({ userId: req.userId, postId, reason: parsed.data.reason }).onConflictDoNothing().returning();
+    if (inserted.length === 0) {
+      res.status(409).json({ error: "\u0644\u0642\u062F \u0623\u0628\u0644\u063A\u062A \u0639\u0646 \u0647\u0630\u0627 \u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u0633\u0627\u0628\u0642\u0627\u064B" });
+      return;
+    }
+    res.json({ reported: true });
+  } catch (err) {
+    req.log.error(err, "reportPost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 var community_default = router3;
 
 // src/routes/conversations.ts
@@ -61878,7 +61967,7 @@ var router5 = (0, import_express5.Router)();
 var followLimiter = rate_limit_default({
   windowMs: 15 * 60 * 1e3,
   max: 30,
-  keyGenerator: (req) => req.userId ?? req.ip ?? "unknown",
+  keyGenerator: (req) => req.userId ?? "anonymous",
   message: { error: "\u0637\u0644\u0628\u0627\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u0643\u062B\u064A\u0631\u0629 \u062C\u062F\u0627\u064B\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644" },
   standardHeaders: true,
   legacyHeaders: false

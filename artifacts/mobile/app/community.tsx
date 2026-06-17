@@ -11,6 +11,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -49,6 +50,18 @@ interface Post {
   createdAt: string;
   author: PostAuthor;
 }
+
+// ─── Report reasons ───────────────────────────────────────────────────────────
+
+const REPORT_REASONS = [
+  { value: "spam",          label: "بريد مزعج أو إعلانات" },
+  { value: "harassment",   label: "تحرش أو إساءة" },
+  { value: "inappropriate", label: "محتوى غير لائق" },
+  { value: "misinformation", label: "معلومات مضللة" },
+  { value: "other",        label: "أخرى" },
+] as const;
+
+type ReportReason = typeof REPORT_REASONS[number]["value"] | "";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -106,19 +119,27 @@ export default function CommunityScreen() {
   const { accent } = useSettings();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [feedMode, setFeedMode]             = useState<FeedMode>("discover");
-  const [modeResolved, setModeResolved]     = useState(false); // true once we've picked the default
-  const [posts, setPosts]                   = useState<Post[]>([]);
-  const [loading, setLoading]               = useState(true);
-  const [composerText, setComposerText]     = useState("");
-  const [posting, setPosting]               = useState(false);
-  const [openPostId, setOpenPostId]         = useState<string | null>(null);
-  // Following-feed metadata
-  const [followingCount, setFollowingCount] = useState(0);
-  // Post management
-  const [menuPostId, setMenuPostId]         = useState<string | null>(null);
-  const [editingPost, setEditingPost]       = useState<{ id: string; content: string } | null>(null);
-  const [editSaving, setEditSaving]         = useState(false);
+  const [feedMode, setFeedMode]               = useState<FeedMode>("discover");
+  const [modeResolved, setModeResolved]       = useState(false);
+  const [posts, setPosts]                     = useState<Post[]>([]);
+  const [loading, setLoading]                 = useState(true);
+  const [composerText, setComposerText]       = useState("");
+  const [posting, setPosting]                 = useState(false);
+  const [openPostId, setOpenPostId]           = useState<string | null>(null);
+  const [followingCount, setFollowingCount]   = useState(0);
+
+  // Options menu (three-dot) — for any post
+  const [optionsMenuPostId, setOptionsMenuPostId] = useState<string | null>(null);
+  // Saved posts — tracked locally per session
+  const [savedPostIds, setSavedPostIds]           = useState<Set<string>>(new Set());
+  // Report modal
+  const [reportingPostId, setReportingPostId]     = useState<string | null>(null);
+  const [reportReason, setReportReason]           = useState<ReportReason>("");
+  const [reportSaving, setReportSaving]           = useState(false);
+
+  // Edit post
+  const [editingPost, setEditingPost]   = useState<{ id: string; content: string } | null>(null);
+  const [editSaving, setEditSaving]     = useState(false);
   const editInputRef = useRef<TextInput>(null);
 
   const inputRef = useRef<TextInput>(null);
@@ -154,7 +175,6 @@ export default function CommunityScreen() {
       if (!token) return;
 
       if (!modeResolved) {
-        // Fetch following feed first to determine if user follows anyone
         apiFetch<{ posts: Post[]; followingCount: number }>(
           "/community/posts/following",
           { token },
@@ -206,7 +226,7 @@ export default function CommunityScreen() {
     return remove;
   }, []);
 
-  // ── Comments count sync from CommentsSheet ─────────────────────────────────
+  // ── Comments count sync ────────────────────────────────────────────────────
   const handleCommentsCountChange = useCallback((postId: string, commentsCount: number) => {
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, commentsCount } : p))
@@ -215,6 +235,7 @@ export default function CommunityScreen() {
 
   // ── Delete post ───────────────────────────────────────────────────────────
   const deletePost = useCallback((postId: string) => {
+    setOptionsMenuPostId(null);
     Alert.alert(
       "حذف المنشور",
       "هل أنت متأكد من حذف هذا المنشور؟ لا يمكن التراجع.",
@@ -225,13 +246,11 @@ export default function CommunityScreen() {
           style: "destructive",
           onPress: async () => {
             if (!token) return;
-            // Optimistic: remove immediately
             setPosts((prev) => prev.filter((p) => p.id !== postId));
-            setMenuPostId(null);
             try {
               await apiFetch(`/community/posts/${postId}`, { method: "DELETE", token });
             } catch {
-              // WS broadcast will re-sync; no rollback needed for delete
+              // WS broadcast will re-sync
             }
           },
         },
@@ -241,7 +260,7 @@ export default function CommunityScreen() {
 
   // ── Edit post ─────────────────────────────────────────────────────────────
   const openEdit = useCallback((post: Post) => {
-    setMenuPostId(null);
+    setOptionsMenuPostId(null);
     setEditingPost({ id: post.id, content: post.content });
     setTimeout(() => editInputRef.current?.focus(), 150);
   }, []);
@@ -257,7 +276,6 @@ export default function CommunityScreen() {
         token,
         body: JSON.stringify({ content }),
       });
-      // WS broadcast will update the post in the feed
       setEditingPost(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
@@ -297,6 +315,88 @@ export default function CommunityScreen() {
     }
   }, [token]);
 
+  // ── Save / Unsave post ────────────────────────────────────────────────────
+  const toggleSave = useCallback(async (postId: string) => {
+    if (!token) return;
+    const isSaved = savedPostIds.has(postId);
+    setSavedPostIds((prev) => {
+      const next = new Set(prev);
+      if (isSaved) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+    setOptionsMenuPostId(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (isSaved) {
+        await apiFetch(`/community/posts/${postId}/save`, { method: "DELETE", token });
+      } else {
+        await apiFetch(`/community/posts/${postId}/save`, { method: "POST", token });
+      }
+    } catch {
+      setSavedPostIds((prev) => {
+        const next = new Set(prev);
+        if (isSaved) next.add(postId);
+        else next.delete(postId);
+        return next;
+      });
+    }
+  }, [token, savedPostIds]);
+
+  // ── Copy post link ────────────────────────────────────────────────────────
+  const copyPostLink = useCallback(async (postId: string) => {
+    setOptionsMenuPostId(null);
+    try {
+      await Share.share({
+        message: `nexora://post/${postId}`,
+        title: "رابط المنشور",
+      });
+    } catch {
+      // user cancelled share sheet
+    }
+  }, []);
+
+  // ── Share post ────────────────────────────────────────────────────────────
+  const sharePost = useCallback(async (postId: string) => {
+    setOptionsMenuPostId(null);
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+    try {
+      await Share.share({
+        message: post.content,
+        title: `منشور بقلم ${post.author.name}`,
+      });
+    } catch {
+      // user cancelled
+    }
+  }, [posts]);
+
+  // ── Report post ────────────────────────────────────────────────────────────
+  const submitReport = useCallback(async () => {
+    if (!reportingPostId || !token || !reportReason || reportSaving) return;
+    setReportSaving(true);
+    try {
+      await apiFetch(`/community/posts/${reportingPostId}/report`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ reason: reportReason }),
+      });
+      setReportingPostId(null);
+      setReportReason("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("شكراً", "تم إرسال بلاغك، سنراجعه قريباً.");
+    } catch (err: any) {
+      const msg = err?.message ?? "";
+      if (msg.includes("409") || msg.includes("سابقاً")) {
+        Alert.alert("تنبيه", "لقد أبلغت عن هذا المنشور سابقاً.");
+      } else {
+        Alert.alert("خطأ", "تعذّر إرسال البلاغ، حاول مجدداً.");
+      }
+    } finally {
+      setReportSaving(false);
+    }
+  }, [reportingPostId, token, reportReason, reportSaving]);
+
   // ── Create post ───────────────────────────────────────────────────────────
   const submitPost = async () => {
     const content = composerText.trim();
@@ -323,7 +423,6 @@ export default function CommunityScreen() {
   // ── Post card ─────────────────────────────────────────────────────────────
   const renderPost = useCallback(({ item }: { item: Post }) => {
     const isOwn = item.author.id === user?.id;
-    const menuOpen = menuPostId === item.id;
     return (
       <View style={styles.postCard}>
         {/* Header */}
@@ -340,15 +439,13 @@ export default function CommunityScreen() {
             </Pressable>
           </View>
           <View style={styles.postHeaderRight}>
-            {isOwn && (
-              <Pressable
-                onPress={() => setMenuPostId(menuOpen ? null : item.id)}
-                hitSlop={8}
-                style={styles.moreBtn}
-              >
-                <Feather name="more-horizontal" size={16} color={colors.placeholder} />
-              </Pressable>
-            )}
+            <Pressable
+              onPress={() => setOptionsMenuPostId(item.id)}
+              hitSlop={8}
+              style={styles.moreBtn}
+            >
+              <Feather name="more-horizontal" size={16} color={colors.placeholder} />
+            </Pressable>
             <Pressable onPress={() => router.push(`/profile/${item.author.id}` as any)} hitSlop={6}>
               <Avatar author={item.author} size={38} />
             </Pressable>
@@ -384,30 +481,13 @@ export default function CommunityScreen() {
             </Text>
           </Pressable>
         </View>
-
-        {/* Inline post actions (own posts only) */}
-        {menuOpen && (
-          <View style={styles.postMenu}>
-            <Pressable
-              style={styles.postMenuItem}
-              onPress={() => openEdit(item)}
-            >
-              <Feather name="edit-2" size={14} color={colors.textSoft} />
-              <Text style={styles.postMenuText}>تعديل</Text>
-            </Pressable>
-            <View style={styles.postMenuDivider} />
-            <Pressable
-              style={styles.postMenuItem}
-              onPress={() => deletePost(item.id)}
-            >
-              <Feather name="trash-2" size={14} color="#EF4444" />
-              <Text style={[styles.postMenuText, { color: "#EF4444" }]}>حذف</Text>
-            </Pressable>
-          </View>
-        )}
       </View>
     );
-  }, [styles, colors, user?.id, menuPostId, toggleLike, openEdit, deletePost]);
+  }, [styles, colors, user?.id, toggleLike]);
+
+  // ── Options menu post (looked up when modal is open) ──────────────────────
+  const optionsPost = posts.find((p) => p.id === optionsMenuPostId) ?? null;
+  const optionsPostIsOwn = optionsPost?.author.id === user?.id;
 
   // ── Composer (list header) ────────────────────────────────────────────────
   const ListHeader = (
@@ -502,7 +582,6 @@ export default function CommunityScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        {/* Feed toggle */}
         <View style={[styles.toggle, { borderColor: colors.border }]}>
           <Pressable
             style={[
@@ -562,6 +641,143 @@ export default function CommunityScreen() {
         onClose={() => setOpenPostId(null)}
         onCommentsCountChange={handleCommentsCountChange}
       />
+
+      {/* ── Options Menu Modal (three-dot) ───────────────────────────── */}
+      <Modal
+        visible={optionsMenuPostId !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setOptionsMenuPostId(null)}
+      >
+        <Pressable style={styles.optionsOverlay} onPress={() => setOptionsMenuPostId(null)} />
+        <View style={styles.optionsSheet}>
+          <View style={styles.optionsHandle} />
+
+          {/* Save / Unsave */}
+          <Pressable
+            style={styles.optionsItem}
+            onPress={() => optionsMenuPostId && toggleSave(optionsMenuPostId)}
+          >
+            <Feather
+              name={savedPostIds.has(optionsMenuPostId ?? "") ? "bookmark" : "bookmark"}
+              size={18}
+              color={savedPostIds.has(optionsMenuPostId ?? "") ? COMMUNITY_COLOR : colors.textSoft}
+            />
+            <Text style={[
+              styles.optionsItemText,
+              savedPostIds.has(optionsMenuPostId ?? "") && { color: COMMUNITY_COLOR },
+            ]}>
+              {savedPostIds.has(optionsMenuPostId ?? "") ? "إلغاء حفظ المنشور" : "حفظ المنشور"}
+            </Text>
+          </Pressable>
+
+          {/* Copy link */}
+          <Pressable
+            style={styles.optionsItem}
+            onPress={() => optionsMenuPostId && copyPostLink(optionsMenuPostId)}
+          >
+            <Feather name="copy" size={18} color={colors.textSoft} />
+            <Text style={styles.optionsItemText}>نسخ رابط المنشور</Text>
+          </Pressable>
+
+          {/* Share */}
+          <Pressable
+            style={styles.optionsItem}
+            onPress={() => optionsMenuPostId && sharePost(optionsMenuPostId)}
+          >
+            <Feather name="share-2" size={18} color={colors.textSoft} />
+            <Text style={styles.optionsItemText}>مشاركة المنشور</Text>
+          </Pressable>
+
+          <View style={styles.optionsDivider} />
+
+          {optionsPostIsOwn ? (
+            /* Own post: Edit + Delete */
+            <>
+              <Pressable
+                style={styles.optionsItem}
+                onPress={() => optionsPost && openEdit(optionsPost)}
+              >
+                <Feather name="edit-2" size={18} color={colors.textSoft} />
+                <Text style={styles.optionsItemText}>تعديل المنشور</Text>
+              </Pressable>
+              <Pressable
+                style={styles.optionsItem}
+                onPress={() => optionsMenuPostId && deletePost(optionsMenuPostId)}
+              >
+                <Feather name="trash-2" size={18} color="#EF4444" />
+                <Text style={[styles.optionsItemText, { color: "#EF4444" }]}>حذف المنشور</Text>
+              </Pressable>
+            </>
+          ) : (
+            /* Other's post: Report */
+            <Pressable
+              style={styles.optionsItem}
+              onPress={() => {
+                if (!optionsMenuPostId) return;
+                setReportingPostId(optionsMenuPostId);
+                setReportReason("");
+                setOptionsMenuPostId(null);
+              }}
+            >
+              <Feather name="flag" size={18} color="#EF4444" />
+              <Text style={[styles.optionsItemText, { color: "#EF4444" }]}>الإبلاغ عن المنشور</Text>
+            </Pressable>
+          )}
+        </View>
+      </Modal>
+
+      {/* ── Report Modal ──────────────────────────────────────────────── */}
+      <Modal
+        visible={reportingPostId !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setReportingPostId(null); setReportReason(""); }}
+      >
+        <Pressable
+          style={styles.optionsOverlay}
+          onPress={() => { setReportingPostId(null); setReportReason(""); }}
+        />
+        <View style={styles.optionsSheet}>
+          <View style={styles.optionsHandle} />
+          <Text style={styles.reportTitle}>الإبلاغ عن المنشور</Text>
+          <Text style={styles.reportSubtitle}>اختر سبب البلاغ</Text>
+
+          {REPORT_REASONS.map((r) => {
+            const selected = reportReason === r.value;
+            return (
+              <Pressable
+                key={r.value}
+                style={[styles.optionsItem, selected && styles.optionsItemSelected]}
+                onPress={() => setReportReason(r.value)}
+              >
+                <Feather
+                  name={selected ? "check-circle" : "circle"}
+                  size={18}
+                  color={selected ? COMMUNITY_COLOR : colors.placeholder}
+                />
+                <Text style={[styles.optionsItemText, selected && { color: COMMUNITY_COLOR }]}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+
+          <Pressable
+            style={[
+              styles.publishBtn,
+              styles.reportSubmitBtn,
+              (!reportReason || reportSaving) && styles.publishBtnDisabled,
+            ]}
+            onPress={submitReport}
+            disabled={!reportReason || reportSaving}
+          >
+            {reportSaving
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
+              : <Text style={styles.publishBtnText}>إرسال البلاغ</Text>}
+          </Pressable>
+        </View>
+      </Modal>
 
       {/* ── Edit Post Modal ──────────────────────────────────────────────── */}
       <Modal
@@ -696,19 +912,6 @@ function makeStyles(colors: ThemeColors) {
       color: colors.textSoft, writingDirection: "rtl",
       lineHeight: 22, textAlign: "right",
     },
-    postMenu: {
-      borderTopWidth: 1, borderTopColor: colors.border,
-      flexDirection: "row", paddingTop: 8,
-    },
-    postMenuItem: {
-      flex: 1, flexDirection: "row-reverse", alignItems: "center",
-      justifyContent: "center", gap: 6, paddingVertical: 6,
-    },
-    postMenuDivider: { width: 1, backgroundColor: colors.border, marginVertical: 2 },
-    postMenuText: {
-      fontSize: 13, fontFamily: "Inter_500Medium",
-      color: colors.textSoft, writingDirection: "rtl",
-    },
 
     postFooter: { flexDirection: "row", gap: 16, paddingTop: 2 },
     postStat: { flexDirection: "row-reverse", alignItems: "center", gap: 5 },
@@ -729,6 +932,48 @@ function makeStyles(colors: ThemeColors) {
     },
     discoverBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", writingDirection: "rtl" },
 
+    // ── Options bottom sheet ──────────────────────────────────────────────────
+    optionsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+    optionsSheet: {
+      position: "absolute", bottom: 0, left: 0, right: 0,
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      paddingTop: 12,
+      paddingBottom: Platform.OS === "web" ? 24 : 40,
+      paddingHorizontal: 20,
+      borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border,
+    },
+    optionsHandle: {
+      width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border,
+      alignSelf: "center", marginBottom: 14,
+    },
+    optionsItem: {
+      flexDirection: "row-reverse", alignItems: "center", gap: 14,
+      paddingVertical: 14, paddingHorizontal: 4,
+    },
+    optionsItemSelected: {
+      backgroundColor: colors.bg,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+    },
+    optionsItemText: {
+      fontSize: 15, fontFamily: "Inter_500Medium",
+      color: colors.textSoft, writingDirection: "rtl", flex: 1, textAlign: "right",
+    },
+    optionsDivider: { height: 1, backgroundColor: colors.border, marginVertical: 4 },
+
+    // ── Report modal extras ───────────────────────────────────────────────────
+    reportTitle: {
+      fontSize: 18, fontFamily: "Inter_700Bold", color: colors.text,
+      textAlign: "right", writingDirection: "rtl", marginBottom: 4,
+    },
+    reportSubtitle: {
+      fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary,
+      textAlign: "right", writingDirection: "rtl", marginBottom: 8,
+    },
+    reportSubmitBtn: { marginTop: 12, paddingVertical: 14 },
+
+    // ── Edit modal ────────────────────────────────────────────────────────────
     editOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.7)" },
     editSheetWrap: { position: "absolute", bottom: 0, left: 0, right: 0 },
     editSheet: {

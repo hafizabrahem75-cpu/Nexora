@@ -1,4 +1,4 @@
-import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, usersTable } from "@workspace/db";
+import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, savedPostsTable, usersTable } from "@workspace/db";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -9,7 +9,7 @@ import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 const router: IRouter = Router();
 
 const byUser = (req: Express.Request) =>
-  (req as AuthRequest).userId ?? req.ip ?? "unknown";
+  (req as AuthRequest).userId ?? "anonymous";
 
 const postLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -34,6 +34,24 @@ const likeLimiter = rateLimit({
   max: 100,
   keyGenerator: byUser,
   message: { error: "طلبات إعجاب كثيرة جداً، يرجى المحاولة بعد قليل" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const saveLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  keyGenerator: byUser,
+  message: { error: "طلبات حفظ كثيرة جداً، يرجى المحاولة بعد قليل" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: byUser,
+  message: { error: "وصلت إلى الحد الأقصى للبلاغات (10 في الساعة)، حاول لاحقاً" },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -402,6 +420,75 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
     res.status(201).json({ comment, commentsCount: updated?.commentsCount ?? 0 });
   } catch (err) {
     req.log.error(err, "createComment failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── POST /community/posts/:id/save ──────────────────────────────────────────
+router.post("/posts/:id/save", requireAuth, saveLimiter, async (req: AuthRequest, res) => {
+  const postId = req.params.id as string;
+  try {
+    await db
+      .insert(savedPostsTable)
+      .values({ userId: req.userId!, postId })
+      .onConflictDoNothing();
+    res.json({ saved: true });
+  } catch (err) {
+    req.log.error(err, "savePost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── DELETE /community/posts/:id/save ────────────────────────────────────────
+router.delete("/posts/:id/save", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id as string;
+  try {
+    await db
+      .delete(savedPostsTable)
+      .where(and(eq(savedPostsTable.userId, req.userId!), eq(savedPostsTable.postId, postId)));
+    res.json({ saved: false });
+  } catch (err) {
+    req.log.error(err, "unsavePost failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// ─── POST /community/posts/:id/report ────────────────────────────────────────
+const ReportBody = z.object({
+  reason: z.enum(["spam", "harassment", "inappropriate", "misinformation", "other"]),
+});
+
+router.post("/posts/:id/report", requireAuth, reportLimiter, async (req: AuthRequest, res) => {
+  const postId = req.params.id as string;
+  const parsed = ReportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "سبب البلاغ غير صالح" });
+    return;
+  }
+  try {
+    const [post] = await db
+      .select({ id: communityPostsTable.id })
+      .from(communityPostsTable)
+      .where(eq(communityPostsTable.id, postId))
+      .limit(1);
+    if (!post) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
+
+    const inserted = await db
+      .insert(postReportsTable)
+      .values({ userId: req.userId!, postId, reason: parsed.data.reason })
+      .onConflictDoNothing()
+      .returning();
+
+    if (inserted.length === 0) {
+      res.status(409).json({ error: "لقد أبلغت عن هذا المنشور سابقاً" });
+      return;
+    }
+    res.json({ reported: true });
+  } catch (err) {
+    req.log.error(err, "reportPost failed");
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });

@@ -10,7 +10,7 @@ const router: IRouter = Router();
 const followLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  keyGenerator: (req) => (req as AuthRequest).userId ?? req.ip ?? "unknown",
+  keyGenerator: (req) => (req as AuthRequest).userId ?? "anonymous",
   message: { error: "طلبات متابعة كثيرة جداً، يرجى المحاولة بعد قليل" },
   standardHeaders: true,
   legacyHeaders: false,

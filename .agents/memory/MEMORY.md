@@ -1,3 +1,4 @@
 - [Express v5 params typing](express-v5-params.md) — Express v5 changed req.params to `string | string[]`; cast with `as string` wherever drizzle `eq()` receives a route param.
 - [expo-notifications granted type](expo-notifications-type.md) — NotificationPermissionsStatus.granted requires `as unknown as { granted: boolean }` cast due to expo vs expo-modules-core type mismatch.
 - [DB schema push required](db-schema-push.md) — DB tables don't auto-create; must run `pnpm --filter @workspace/db run push` before the API server can serve requests.
+- [express-rate-limit IPv6 key](rate-limit-ipv6.md) — keyGenerator that falls back to req.ip triggers ERR_ERL_KEY_GEN_IPV6; use userId-only fallback on auth-required routes.
