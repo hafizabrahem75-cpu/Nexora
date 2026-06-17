@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "tbNwQpfhaAvOL3nNe5AMZ"
+uri = "file://AUDIT.md"
+type = "text"
+title = "Nexora — Full Project Audit"
