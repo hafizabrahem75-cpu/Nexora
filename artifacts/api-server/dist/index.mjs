@@ -61627,6 +61627,40 @@ router3.delete("/posts/:id/like", requireAuth, likeLimiter, async (req, res) => 
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
+router3.get("/posts/:id/likes", requireAuth, async (req, res) => {
+  const postId = req.params.id;
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Math.min(Math.max(1, isNaN(limitRaw) ? 50 : limitRaw), 100);
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : void 0;
+  try {
+    const [post] = await db.select({ id: communityPostsTable.id }).from(communityPostsTable).where(eq(communityPostsTable.id, postId)).limit(1);
+    if (!post) {
+      res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u0634\u0648\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      return;
+    }
+    const conditions = [eq(postLikesTable.postId, postId)];
+    if (cursor) {
+      conditions.push(sql`${postLikesTable.createdAt} < ${new Date(cursor)}`);
+    }
+    const rows = await db.select({
+      likedAt: postLikesTable.createdAt,
+      user: {
+        id: usersTable.id,
+        name: usersTable.name,
+        username: usersTable.username,
+        avatarColor: usersTable.avatarColor,
+        avatarImageUri: usersTable.avatarImageUri
+      }
+    }).from(postLikesTable).innerJoin(usersTable, eq(postLikesTable.userId, usersTable.id)).where(and(...conditions)).orderBy(desc(postLikesTable.createdAt)).limit(limit + 1);
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? items[items.length - 1].likedAt.toISOString() : null;
+    res.json({ likes: items, nextCursor });
+  } catch (err) {
+    req.log.error(err, "getPostLikes failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 router3.get("/posts/:id/comments", requireAuth, async (req, res) => {
   const postId = req.params.id;
   try {

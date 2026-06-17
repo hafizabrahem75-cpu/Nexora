@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomNav from "@/components/BottomNav";
 import CommentsSheet from "@/components/CommentsSheet";
+import LikesSheet from "@/components/LikesSheet";
 import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
@@ -126,6 +127,7 @@ export default function CommunityScreen() {
   const [composerText, setComposerText]       = useState("");
   const [posting, setPosting]                 = useState(false);
   const [openPostId, setOpenPostId]           = useState<string | null>(null);
+  const [likesSheetPostId, setLikesSheetPostId] = useState<string | null>(null);
   const [followingCount, setFollowingCount]   = useState(0);
 
   // Options menu (three-dot) — for any post
@@ -466,20 +468,26 @@ export default function CommunityScreen() {
             <Text style={styles.postStatText}>{item.commentsCount}</Text>
           </Pressable>
 
-          <Pressable
-            style={styles.postStat}
-            onPress={() => toggleLike(item.id, item.isLiked)}
-            hitSlop={8}
-          >
-            <Feather
-              name="heart"
-              size={14}
-              color={item.isLiked ? "#EF4444" : colors.placeholder}
-            />
-            <Text style={[styles.postStatText, item.isLiked && styles.postStatLiked]}>
-              {item.likesCount}
-            </Text>
-          </Pressable>
+          <View style={styles.postStat}>
+            <Pressable
+              onPress={() => toggleLike(item.id, item.isLiked)}
+              hitSlop={8}
+            >
+              <Feather
+                name="heart"
+                size={14}
+                color={item.isLiked ? "#EF4444" : colors.placeholder}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => setLikesSheetPostId(item.id)}
+              hitSlop={8}
+            >
+              <Text style={[styles.postStatText, item.isLiked && styles.postStatLiked]}>
+                {item.likesCount}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     );
@@ -640,6 +648,11 @@ export default function CommunityScreen() {
         postId={openPostId}
         onClose={() => setOpenPostId(null)}
         onCommentsCountChange={handleCommentsCountChange}
+      />
+
+      <LikesSheet
+        postId={likesSheetPostId}
+        onClose={() => setLikesSheetPostId(null)}
       />
 
       {/* ── Options Menu Modal (three-dot) ───────────────────────────── */}

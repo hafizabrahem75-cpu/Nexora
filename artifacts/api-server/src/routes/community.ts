@@ -335,6 +335,59 @@ router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthReque
   }
 });
 
+// ─── GET /community/posts/:id/likes ──────────────────────────────────────────
+router.get("/posts/:id/likes", requireAuth, async (req: AuthRequest, res) => {
+  const postId = req.params.id as string;
+
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Math.min(Math.max(1, isNaN(limitRaw) ? 50 : limitRaw), 100);
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+
+  try {
+    const [post] = await db
+      .select({ id: communityPostsTable.id })
+      .from(communityPostsTable)
+      .where(eq(communityPostsTable.id, postId))
+      .limit(1);
+
+    if (!post) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
+
+    const conditions = [eq(postLikesTable.postId, postId)];
+    if (cursor) {
+      conditions.push(sql`${postLikesTable.createdAt} < ${new Date(cursor)}`);
+    }
+
+    const rows = await db
+      .select({
+        likedAt: postLikesTable.createdAt,
+        user: {
+          id:             usersTable.id,
+          name:           usersTable.name,
+          username:       usersTable.username,
+          avatarColor:    usersTable.avatarColor,
+          avatarImageUri: usersTable.avatarImageUri,
+        },
+      })
+      .from(postLikesTable)
+      .innerJoin(usersTable, eq(postLikesTable.userId, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(postLikesTable.createdAt))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? items[items.length - 1]!.likedAt.toISOString() : null;
+
+    res.json({ likes: items, nextCursor });
+  } catch (err) {
+    req.log.error(err, "getPostLikes failed");
+    res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
 // ─── GET /community/posts/:id/comments ───────────────────────────────────────
 router.get("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
