@@ -66747,6 +66747,7 @@ var routes_default = router14;
 
 // src/app.ts
 var app = (0, import_express15.default)();
+app.set("trust proxy", 1);
 var ALLOWED_ORIGINS = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
