@@ -16,4 +16,7 @@ export * from "./community_posts";
 export * from "./post_likes";
 export * from "./post_comments";
 export * from "./follows";
+export * from "./saved_posts";
+export * from "./post_reports";
+export * from "./post_images";
 //# sourceMappingURL=index.d.ts.map

@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -25,7 +26,7 @@ import LikesSheet from "@/components/LikesSheet";
 import { useAuth } from "@/context/AuthContext";
 import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
-import { apiFetch } from "@/lib/api";
+import { API_BASE, apiFetch } from "@/lib/api";
 import { addWsListener } from "@/lib/ws";
 
 const COMMUNITY_COLOR = "#10B981";
@@ -42,14 +43,27 @@ interface PostAuthor {
   avatarImageUri: string | null;
 }
 
+interface PostImageItem {
+  id: string;
+  mimeType: string;
+}
+
 interface Post {
   id: string;
   content: string;
+  images: PostImageItem[];
   likesCount: number;
   commentsCount: number;
   isLiked: boolean;
   createdAt: string;
   author: PostAuthor;
+}
+
+/** Image selected locally, before it has been uploaded. */
+interface PendingImage {
+  localUri: string;   // for preview only
+  base64: string;     // raw base64 (no data-URI prefix)
+  mimeType: string;
 }
 
 // ─── Report reasons ───────────────────────────────────────────────────────────
@@ -126,6 +140,8 @@ export default function CommunityScreen() {
   const [loading, setLoading]                 = useState(true);
   const [composerText, setComposerText]       = useState("");
   const [posting, setPosting]                 = useState(false);
+  const [pendingImage, setPendingImage]       = useState<PendingImage | null>(null);
+  const [uploadingImage, setUploadingImage]   = useState(false);
   const [openPostId, setOpenPostId]           = useState<string | null>(null);
   const [likesSheetPostId, setLikesSheetPostId] = useState<string | null>(null);
   const [followingCount, setFollowingCount]   = useState(0);
@@ -399,20 +415,89 @@ export default function CommunityScreen() {
     }
   }, [reportingPostId, token, reportReason, reportSaving]);
 
+  // ── Pick image from library ────────────────────────────────────────────────
+  const pickImage = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("إذن مطلوب", "يرجى السماح بالوصول إلى معرض الصور لإرفاق صورة.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert("خطأ", "تعذّر قراءة الصورة. حاول اختيار صورة أخرى.");
+        return;
+      }
+
+      // Derive MIME type from file extension or reported type.
+      const rawType = asset.mimeType ?? "";
+      const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      const mimeType = allowed.includes(rawType) ? rawType : "image/jpeg";
+
+      setPendingImage({
+        localUri: asset.uri,
+        base64:   asset.base64,
+        mimeType,
+      });
+    } catch {
+      Alert.alert("خطأ", "تعذّر فتح معرض الصور.");
+    }
+  }, []);
+
   // ── Create post ───────────────────────────────────────────────────────────
   const submitPost = async () => {
     const content = composerText.trim();
-    if (!content || !token || posting) return;
+    if ((!content && !pendingImage) || !token || posting) return;
 
     setPosting(true);
     try {
+      let imageId: string | undefined;
+
+      // Step 1: upload image if one is attached.
+      if (pendingImage) {
+        setUploadingImage(true);
+        try {
+          const { imageId: id } = await apiFetch<{ imageId: string }>(
+            "/community/images",
+            {
+              method: "POST",
+              token,
+              body: JSON.stringify({
+                mimeType: pendingImage.mimeType,
+                data:     pendingImage.base64,
+              }),
+            },
+          );
+          imageId = id;
+        } catch {
+          Alert.alert("خطأ", "تعذّر رفع الصورة. تحقق من حجم الصورة (الحد الأقصى 5 ميغابايت).");
+          setPosting(false);
+          setUploadingImage(false);
+          return;
+        } finally {
+          setUploadingImage(false);
+        }
+      }
+
+      // Step 2: create the post, optionally linking the uploaded image.
       const { post } = await apiFetch<{ post: Post }>("/community/posts", {
         method: "POST",
         token,
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content: content || " ", imageId }),
       });
       setPosts((prev) => [post, ...prev]);
       setComposerText("");
+      setPendingImage(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       inputRef.current?.blur();
     } catch {
@@ -455,7 +540,23 @@ export default function CommunityScreen() {
         </View>
 
         {/* Content */}
-        <Text style={styles.postContent}>{item.content}</Text>
+        {item.content.trim() ? (
+          <Text style={styles.postContent}>{item.content}</Text>
+        ) : null}
+
+        {/* Images */}
+        {item.images?.length > 0 ? (
+          <View style={styles.postImagesWrap}>
+            {item.images.map((img) => (
+              <Image
+                key={img.id}
+                source={{ uri: `${API_BASE}/community/images/${img.id}` }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+        ) : null}
 
         {/* Footer */}
         <View style={styles.postFooter}>
@@ -526,16 +627,49 @@ export default function CommunityScreen() {
           textAlignVertical="top"
         />
       </View>
+      {/* Pending image preview */}
+      {pendingImage ? (
+        <View style={styles.pendingImageWrap}>
+          <Image
+            source={{ uri: pendingImage.localUri }}
+            style={styles.pendingImageThumb}
+            resizeMode="cover"
+          />
+          <Pressable
+            style={styles.pendingImageRemove}
+            onPress={() => setPendingImage(null)}
+            hitSlop={8}
+          >
+            <Feather name="x" size={14} color="#FFFFFF" />
+          </Pressable>
+          {uploadingImage ? (
+            <View style={styles.pendingImageUploading}>
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={styles.composerActions}>
-        <Text style={styles.composerCount}>{composerText.length}/5000</Text>
+        <View style={styles.composerLeft}>
+          <Pressable
+            onPress={pickImage}
+            hitSlop={8}
+            style={[styles.imagePickerBtn, pendingImage ? { opacity: 0.4 } : null]}
+            disabled={!!pendingImage}
+          >
+            <Feather name="image" size={18} color={COMMUNITY_COLOR} />
+          </Pressable>
+          <Text style={styles.composerCount}>{composerText.length}/5000</Text>
+        </View>
         <Pressable
           style={({ pressed }) => [
             styles.publishBtn,
-            !composerText.trim() && styles.publishBtnDisabled,
-            pressed && composerText.trim() && { opacity: 0.8 },
+            (!composerText.trim() && !pendingImage) && styles.publishBtnDisabled,
+            pressed && (composerText.trim() || pendingImage) ? { opacity: 0.8 } : null,
           ]}
           onPress={submitPost}
-          disabled={!composerText.trim() || posting}
+          disabled={(!composerText.trim() && !pendingImage) || posting}
         >
           {posting
             ? <ActivityIndicator size="small" color="#FFFFFF" />
@@ -898,7 +1032,48 @@ function makeStyles(colors: ThemeColors) {
       color: colors.text, writingDirection: "rtl",
     },
     composerActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    composerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+    imagePickerBtn: { padding: 2 },
     composerCount: { fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary },
+
+    // Pending image preview (composer)
+    pendingImageWrap: {
+      position: "relative",
+      alignSelf: "flex-end",
+      borderRadius: 10,
+      overflow: "hidden",
+    },
+    pendingImageThumb: {
+      width: 100,
+      height: 100,
+      borderRadius: 10,
+    },
+    pendingImageRemove: {
+      position: "absolute",
+      top: 4,
+      right: 4,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pendingImageUploading: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0,0,0,0.4)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    // Images inside a post card
+    postImagesWrap: { borderRadius: 12, overflow: "hidden" },
+    postImage: {
+      width: "100%",
+      aspectRatio: 16 / 9,
+      borderRadius: 12,
+      backgroundColor: colors.border,
+    },
     publishBtn: {
       backgroundColor: COMMUNITY_COLOR, borderRadius: 12,
       paddingHorizontal: 22, paddingVertical: 10,

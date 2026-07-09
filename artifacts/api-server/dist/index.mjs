@@ -46373,6 +46373,7 @@ __export(schema_exports, {
   notificationsTable: () => notificationsTable,
   passwordResetTokensTable: () => passwordResetTokensTable,
   postCommentsTable: () => postCommentsTable,
+  postImagesTable: () => postImagesTable,
   postLikesTable: () => postLikesTable,
   postReportsTable: () => postReportsTable,
   publicUserSchema: () => publicUserSchema,
@@ -58031,6 +58032,22 @@ var postReportsTable = pgTable("post_reports", {
   index("post_reports_user_id_idx").on(t.userId)
 ]);
 
+// ../../lib/db/src/schema/post_images.ts
+var postImagesTable = pgTable("post_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  postId: uuid("post_id").references(() => communityPostsTable.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  mimeType: text("mime_type").notNull(),
+  data: text("data").notNull(),
+  // base64-encoded binary (no "data:…" prefix)
+  size: integer("size").notNull(),
+  // decoded byte count
+  createdAt: timestamp("created_at").notNull().defaultNow()
+}, (t) => [
+  index("post_images_post_id_idx").on(t.postId),
+  index("post_images_user_id_idx").on(t.userId)
+]);
+
 // ../../lib/db/src/index.ts
 var { Pool: Pool3 } = esm_default;
 if (!process.env.DATABASE_URL) {
@@ -61430,6 +61447,131 @@ var reportLimiter = rate_limit_default({
   standardHeaders: true,
   legacyHeaders: false
 });
+var imageUploadLimiter = rate_limit_default({
+  windowMs: 60 * 60 * 1e3,
+  max: 20,
+  keyGenerator: byUser,
+  message: { error: "\u0648\u0635\u0644\u062A \u0625\u0644\u0649 \u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0644\u0631\u0641\u0639 \u0627\u0644\u0635\u0648\u0631 (20 \u0641\u064A \u0627\u0644\u0633\u0627\u0639\u0629)\u060C \u062D\u0627\u0648\u0644 \u0644\u0627\u062D\u0642\u0627\u064B" },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+var ALLOWED_MIME_TYPES = /* @__PURE__ */ new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp"
+]);
+function detectMimeType(headerBytes) {
+  if (headerBytes.length >= 3 && headerBytes[0] === 255 && headerBytes[1] === 216 && headerBytes[2] === 255) {
+    return "image/jpeg";
+  }
+  if (headerBytes.length >= 4 && headerBytes[0] === 137 && headerBytes[1] === 80 && headerBytes[2] === 78 && headerBytes[3] === 71) {
+    return "image/png";
+  }
+  if (headerBytes.length >= 4 && headerBytes[0] === 71 && headerBytes[1] === 73 && headerBytes[2] === 70 && headerBytes[3] === 56) {
+    return "image/gif";
+  }
+  if (headerBytes.length >= 12 && headerBytes[0] === 82 && headerBytes[1] === 73 && headerBytes[2] === 70 && headerBytes[3] === 70 && headerBytes[8] === 87 && headerBytes[9] === 69 && headerBytes[10] === 66 && headerBytes[11] === 80) {
+    return "image/webp";
+  }
+  return null;
+}
+function validateImage(mimeType, base64Data) {
+  if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+    return { ok: false, error: "\u0646\u0648\u0639 \u0627\u0644\u0645\u0644\u0641 \u063A\u064A\u0631 \u0645\u062F\u0639\u0648\u0645. \u0627\u0644\u0623\u0646\u0648\u0627\u0639 \u0627\u0644\u0645\u0633\u0645\u0648\u062D \u0628\u0647\u0627: JPEG, PNG, GIF, WebP" };
+  }
+  let headerBytes;
+  try {
+    headerBytes = Buffer.from(base64Data.slice(0, 20), "base64");
+  } catch {
+    return { ok: false, error: "\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" };
+  }
+  const detectedType = detectMimeType(headerBytes);
+  if (!detectedType) {
+    return { ok: false, error: "\u0627\u0644\u0645\u0644\u0641 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0623\u064A \u062A\u0646\u0633\u064A\u0642 \u0645\u062F\u0639\u0648\u0645 (JPEG, PNG, GIF, WebP)" };
+  }
+  if (detectedType !== mimeType) {
+    return { ok: false, error: "\u0646\u0648\u0639 \u0627\u0644\u0645\u0644\u0641 \u0627\u0644\u0645\u064F\u0639\u0644\u064E\u0646 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0645\u062D\u062A\u0648\u0627\u0647 \u0627\u0644\u0641\u0639\u0644\u064A" };
+  }
+  const padding = (base64Data.match(/={0,2}$/) ?? [""])[0].length;
+  const decodedSize = Math.floor(base64Data.length * 0.75) - padding;
+  if (decodedSize > MAX_IMAGE_BYTES) {
+    return {
+      ok: false,
+      error: `\u062D\u062C\u0645 \u0627\u0644\u0635\u0648\u0631\u0629 \u064A\u062A\u062C\u0627\u0648\u0632 \u0627\u0644\u062D\u062F \u0627\u0644\u0645\u0633\u0645\u0648\u062D (${MAX_IMAGE_BYTES / 1024 / 1024} \u0645\u064A\u063A\u0627\u0628\u0627\u064A\u062A)`
+    };
+  }
+  if (decodedSize < 1) {
+    return { ok: false, error: "\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0635\u0648\u0631\u0629 \u0641\u0627\u0631\u063A\u0629" };
+  }
+  return { ok: true, decodedSize };
+}
+async function fetchImagesForPosts(postIds) {
+  const map2 = /* @__PURE__ */ new Map();
+  if (postIds.length === 0) return map2;
+  const rows = await db.select({
+    postId: postImagesTable.postId,
+    id: postImagesTable.id,
+    mimeType: postImagesTable.mimeType
+  }).from(postImagesTable).where(inArray(postImagesTable.postId, postIds)).orderBy(asc(postImagesTable.createdAt));
+  for (const row of rows) {
+    if (!row.postId) continue;
+    if (!map2.has(row.postId)) map2.set(row.postId, []);
+    map2.get(row.postId).push({ id: row.id, mimeType: row.mimeType });
+  }
+  return map2;
+}
+var UploadImageBody = external_exports.object({
+  mimeType: external_exports.string(),
+  data: external_exports.string().min(1)
+});
+router3.post("/images", requireAuth, imageUploadLimiter, async (req, res) => {
+  const parsed = UploadImageBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629 \u2014 \u064A\u0631\u062C\u0649 \u0625\u0631\u0633\u0627\u0644 mimeType \u0648data" });
+    return;
+  }
+  const { mimeType, data } = parsed.data;
+  const validation = validateImage(mimeType, data);
+  if (!validation.ok) {
+    res.status(422).json({ error: validation.error });
+    return;
+  }
+  try {
+    const [row] = await db.insert(postImagesTable).values({
+      postId: null,
+      // linked when the post is created
+      userId: req.userId,
+      // server-derived — never trusts client
+      mimeType,
+      data,
+      size: validation.decodedSize
+    }).returning({ id: postImagesTable.id });
+    res.status(201).json({ imageId: row.id });
+  } catch (err) {
+    req.log.error(err, "uploadPostImage failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
+router3.get("/images/:id", async (req, res) => {
+  const imageId = req.params.id;
+  try {
+    const [row] = await db.select({ mimeType: postImagesTable.mimeType, data: postImagesTable.data }).from(postImagesTable).where(and(eq(postImagesTable.id, imageId), isNotNull(postImagesTable.postId))).limit(1);
+    if (!row) {
+      res.status(404).json({ error: "\u0627\u0644\u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
+      return;
+    }
+    const buffer = Buffer.from(row.data, "base64");
+    res.set("Content-Type", row.mimeType);
+    res.set("Content-Length", String(buffer.length));
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(buffer);
+  } catch (err) {
+    console.error("servePostImage failed", err);
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
+});
 router3.get("/posts", requireAuth, async (req, res) => {
   try {
     const rows = await db.select({
@@ -61446,18 +61588,22 @@ router3.get("/posts", requireAuth, async (req, res) => {
         avatarImageUri: usersTable.avatarImageUri
       }
     }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).orderBy(desc(communityPostsTable.createdAt)).limit(100);
-    let likedSet = /* @__PURE__ */ new Set();
-    if (rows.length > 0) {
-      const postIds = rows.map((r) => r.id);
-      const liked = await db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(
+    const postIds = rows.map((r) => r.id);
+    const [likedRows, imageMap] = await Promise.all([
+      rows.length > 0 ? db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(
         and(
           eq(postLikesTable.userId, req.userId),
           inArray(postLikesTable.postId, postIds)
         )
-      );
-      likedSet = new Set(liked.map((l) => l.postId));
-    }
-    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+      ) : Promise.resolve([]),
+      fetchImagesForPosts(postIds)
+    ]);
+    const likedSet = new Set(likedRows.map((l) => l.postId));
+    const posts = rows.map((r) => ({
+      ...r,
+      isLiked: likedSet.has(r.id),
+      images: imageMap.get(r.id) ?? []
+    }));
     res.json({ posts });
   } catch (err) {
     req.log.error(err, "getCommunityPosts failed");
@@ -61484,13 +61630,17 @@ router3.get("/posts/following", requireAuth, async (req, res) => {
         avatarImageUri: usersTable.avatarImageUri
       }
     }).from(communityPostsTable).innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id)).where(inArray(communityPostsTable.userId, relevantIds)).orderBy(desc(communityPostsTable.createdAt)).limit(100);
-    let likedSet = /* @__PURE__ */ new Set();
-    if (rows.length > 0) {
-      const postIds = rows.map((r) => r.id);
-      const liked = await db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(and(eq(postLikesTable.userId, userId), inArray(postLikesTable.postId, postIds)));
-      likedSet = new Set(liked.map((l) => l.postId));
-    }
-    const posts = rows.map((r) => ({ ...r, isLiked: likedSet.has(r.id) }));
+    const postIds = rows.map((r) => r.id);
+    const [likedRows, imageMap] = await Promise.all([
+      rows.length > 0 ? db.select({ postId: postLikesTable.postId }).from(postLikesTable).where(and(eq(postLikesTable.userId, userId), inArray(postLikesTable.postId, postIds))) : Promise.resolve([]),
+      fetchImagesForPosts(postIds)
+    ]);
+    const likedSet = new Set(likedRows.map((l) => l.postId));
+    const posts = rows.map((r) => ({
+      ...r,
+      isLiked: likedSet.has(r.id),
+      images: imageMap.get(r.id) ?? []
+    }));
     res.json({ posts, followingCount: followedIds.length });
   } catch (err) {
     req.log.error(err, "getFollowingPosts failed");
@@ -61498,7 +61648,75 @@ router3.get("/posts/following", requireAuth, async (req, res) => {
   }
 });
 var CreatePostBody = external_exports.object({
-  content: external_exports.string().min(1).max(5e3)
+  content: external_exports.string().min(1).max(5e3),
+  imageId: external_exports.string().uuid().optional()
+});
+router3.post("/posts", requireAuth, postLimiter, async (req, res) => {
+  const parsed = CreatePostBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
+    return;
+  }
+  const { content, imageId } = parsed.data;
+  const userId = req.userId;
+  try {
+    let pendingImageMeta = null;
+    if (imageId) {
+      const [img] = await db.select({ id: postImagesTable.id, mimeType: postImagesTable.mimeType }).from(postImagesTable).where(
+        and(
+          eq(postImagesTable.id, imageId),
+          eq(postImagesTable.userId, userId),
+          // ownership: server-verified
+          isNull(postImagesTable.postId)
+          // must be unlinked
+        )
+      ).limit(1);
+      if (!img) {
+        res.status(409).json({ error: "\u0627\u0644\u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629 \u0623\u0648 \u0644\u0627 \u062A\u062E\u0635 \u062D\u0633\u0627\u0628\u0643 \u0623\u0648 \u0645\u0631\u062A\u0628\u0637\u0629 \u0628\u0645\u0646\u0634\u0648\u0631 \u0622\u062E\u0631" });
+        return;
+      }
+      pendingImageMeta = { id: img.id, mimeType: img.mimeType };
+    }
+    const [inserted] = await db.insert(communityPostsTable).values({ userId, content }).returning();
+    let linkedImages = [];
+    if (pendingImageMeta && inserted) {
+      const claimed = await db.update(postImagesTable).set({ postId: inserted.id }).where(
+        and(
+          eq(postImagesTable.id, pendingImageMeta.id),
+          eq(postImagesTable.userId, userId),
+          // re-assert ownership
+          isNull(postImagesTable.postId)
+          // re-assert unlinked (atomic guard)
+        )
+      ).returning({ id: postImagesTable.id, mimeType: postImagesTable.mimeType });
+      if (claimed.length === 0) {
+        await db.delete(communityPostsTable).where(eq(communityPostsTable.id, inserted.id));
+        res.status(409).json({ error: "\u0627\u0644\u0635\u0648\u0631\u0629 \u0645\u0631\u062A\u0628\u0637\u0629 \u0628\u0645\u0646\u0634\u0648\u0631 \u0622\u062E\u0631 \u0628\u0627\u0644\u0641\u0639\u0644\u060C \u064A\u0631\u062C\u0649 \u0631\u0641\u0639 \u0635\u0648\u0631\u0629 \u062C\u062F\u064A\u062F\u0629" });
+        return;
+      }
+      linkedImages = [{ id: claimed[0].id, mimeType: claimed[0].mimeType }];
+    }
+    const post = {
+      id: inserted.id,
+      content: inserted.content,
+      likesCount: inserted.likesCount,
+      commentsCount: inserted.commentsCount,
+      createdAt: inserted.createdAt,
+      isLiked: false,
+      images: linkedImages,
+      author: {
+        id: req.user.id,
+        name: req.user.name,
+        username: req.user.username,
+        avatarColor: req.user.avatarColor,
+        avatarImageUri: req.user.avatarImageUri ?? null
+      }
+    };
+    res.status(201).json({ post });
+  } catch (err) {
+    req.log.error(err, "createCommunityPost failed");
+    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+  }
 });
 var EditPostBody = external_exports.object({ content: external_exports.string().min(1).max(5e3) });
 router3.put("/posts/:id", requireAuth, async (req, res) => {
@@ -61545,35 +61763,6 @@ router3.delete("/posts/:id", requireAuth, async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     req.log.error(err, "deletePost failed");
-    res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
-  }
-});
-router3.post("/posts", requireAuth, postLimiter, async (req, res) => {
-  const parsed = CreatePostBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" });
-    return;
-  }
-  try {
-    const [inserted] = await db.insert(communityPostsTable).values({ userId: req.userId, content: parsed.data.content }).returning();
-    const post = {
-      id: inserted.id,
-      content: inserted.content,
-      likesCount: inserted.likesCount,
-      commentsCount: inserted.commentsCount,
-      createdAt: inserted.createdAt,
-      isLiked: false,
-      author: {
-        id: req.user.id,
-        name: req.user.name,
-        username: req.user.username,
-        avatarColor: req.user.avatarColor,
-        avatarImageUri: req.user.avatarImageUri ?? null
-      }
-    };
-    res.status(201).json({ post });
-  } catch (err) {
-    req.log.error(err, "createCommunityPost failed");
     res.status(500).json({ error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
   }
 });
@@ -66851,7 +67040,7 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api", generalApiLimiter);
-app.use(import_express15.default.json());
+app.use(import_express15.default.json({ limit: "8mb" }));
 app.use(import_express15.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
 var app_default = app;

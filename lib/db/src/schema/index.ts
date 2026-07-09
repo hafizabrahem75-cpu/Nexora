@@ -18,3 +18,4 @@ export * from "./post_comments";
 export * from "./follows";
 export * from "./saved_posts";
 export * from "./post_reports";
+export * from "./post_images";

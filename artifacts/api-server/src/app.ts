@@ -84,7 +84,10 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api", generalApiLimiter);
 
-app.use(express.json());
+// 8 MB limit to accommodate base64-encoded image uploads (5 MB image ≈ 6.9 MB base64).
+// The upload route is gated by requireAuth + a strict rate limiter so this
+// expanded limit is not exploitable by unauthenticated callers.
+app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
