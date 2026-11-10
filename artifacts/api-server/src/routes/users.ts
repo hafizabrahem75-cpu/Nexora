@@ -115,14 +115,29 @@ router.get("/search", requireAuth, async (req: AuthRequest, res) => {
         username: usersTable.username,
         avatarColor: usersTable.avatarColor,
         avatarImageUri: usersTable.avatarImageUri,
+        profileVisibility: usersTable.profileVisibility,
       })
       .from(usersTable)
-      .where(
-        ilike(usersTable.username, term),
-      )
+      .where(ilike(usersTable.username, term))
       .limit(20);
 
-    res.json({ users: results.filter((u) => u.id !== req.userId) });
+    const visibleUsers = await Promise.all(
+      results
+        .filter((candidate) => candidate.id !== req.userId)
+        .map(async (candidate) =>
+          (await canViewProfile(req.userId!, candidate.id, candidate.profileVisibility))
+            ? {
+                id: candidate.id,
+                name: candidate.name,
+                username: candidate.username,
+                avatarColor: candidate.avatarColor,
+                avatarImageUri: candidate.avatarImageUri,
+              }
+            : null,
+        ),
+    );
+
+    res.json({ users: visibleUsers.filter((candidate) => candidate !== null) });
   } catch (err) {
     req.log.error(err, "searchUsers failed");
     res.status(500).json({ error: "خطأ في الخادم" });
