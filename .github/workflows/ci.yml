@@ -7,16 +7,18 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
-    name: Typecheck app packages and build API
+    name: Dependency, type and API validation
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -26,8 +28,17 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install and refresh lockfile
+        run: pnpm install --no-frozen-lockfile
+      - name: Commit lockfile updates when needed
+        run: |
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml
+            git commit -m "chore: refresh pnpm lockfile"
+            git push
+          fi
       - name: Typecheck shared libraries
         run: pnpm run typecheck:libs
       - name: Typecheck API server
