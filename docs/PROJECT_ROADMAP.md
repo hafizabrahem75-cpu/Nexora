@@ -58,11 +58,13 @@ verified on a running service/device.
   the client no longer ships or sends a shared admin secret. The admin screen is hidden
   from ordinary users, but production still needs owner-only provisioning, a separate
   admin origin/interface, step-up authentication/MFA, audit logging, and safeguards
-  against destructive actions affecting the owner account.
+  against destructive actions affecting the owner account. Admin APIs now refuse to
+  suspend or delete the owner/developer accounts.
 - Profile visibility is enforced in profile, username-search, profile-post, community-feed,
-  following-feed, and image-delivery API paths. Private image requests require authentication
-  and use `private, no-store` caching. Continue auditing follower lists, notifications,
-  message discovery, and indirect data paths.
+  following-feed, image delivery, and post interaction endpoints (likes, comments, saves,
+  and reports). Private image requests require authentication and use `private, no-store`
+  caching. Continue auditing follower lists, notifications, message discovery, and indirect
+  data paths.
 - Rotate all credentials ever committed; removing them from the latest tree does not
   erase them from Git history.
 
