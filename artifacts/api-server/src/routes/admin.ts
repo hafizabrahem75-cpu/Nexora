@@ -122,6 +122,10 @@ router.patch("/users/:id/suspend", async (req, res) => {
 router.patch("/users/:id/unsuspend", async (req, res) => {
   const id = req.params["id"] as string;
   try {
+    if (await isProtectedDeveloperTarget(req, id)) {
+      res.status(403).json({ error: "لا يمكن تغيير حالة حساب المالك أو حساب مطور" });
+      return;
+    }
     await db
       .update(usersTable)
       .set({ suspendedAt: null, updatedAt: new Date() })
