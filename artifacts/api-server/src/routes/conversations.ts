@@ -30,6 +30,19 @@ async function areFriends(a: string, b: string): Promise<boolean> {
   return !!row;
 }
 
+async function canReceiveMessage(senderId: string, recipientId: string): Promise<boolean> {
+  const [recipient] = await db
+    .select({ messagingPrivacy: usersTable.messagingPrivacy })
+    .from(usersTable)
+    .where(eq(usersTable.id, recipientId))
+    .limit(1);
+
+  if (!recipient) return false;
+  if (recipient.messagingPrivacy === "everyone") return true;
+  if (recipient.messagingPrivacy !== "friends") return false;
+  return areFriends(senderId, recipientId);
+}
+
 // ─── GET /conversations — list all conversations ───────────────────────────────
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   const userId = req.userId!;
@@ -155,8 +168,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   }
 
   try {
-    if (!(await areFriends(userId, friendId))) {
-      res.status(403).json({ error: "يجب أن تكونا أصدقاء لبدء محادثة" });
+    if (!(await canReceiveMessage(userId, friendId))) {
+      res.status(403).json({ error: "إعدادات الخصوصية لهذا المستخدم لا تسمح ببدء المحادثة" });
       return;
     }
 
@@ -284,6 +297,14 @@ router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
+    const recipientIds = participantIds.filter((pid) => pid !== userId);
+    for (const recipientId of recipientIds) {
+      if (!(await canReceiveMessage(userId, recipientId))) {
+        res.status(403).json({ error: "إعدادات الخصوصية لأحد المشاركين لا تسمح باستقبال الرسائل منك" });
+        return;
+      }
+    }
+
     const [message] = await db
       .insert(messagesTable)
       .values({
@@ -309,7 +330,6 @@ router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     });
 
     const senderName = req.user?.name ?? req.user?.username ?? "مستخدم";
-    const recipientIds = participantIds.filter((pid) => pid !== userId);
     for (const recipientId of recipientIds) {
       wsManager.notifyNewMessage({
         recipientId,
