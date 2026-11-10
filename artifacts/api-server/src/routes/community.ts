@@ -1,4 +1,4 @@
-import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable } from "@workspace/db";
+import { db, communityPostsTable, followsTable, friendshipsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable } from "@workspace/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -7,6 +7,26 @@ import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
+
+async function canViewProfile(viewerId: string, ownerId: string, visibility: string): Promise<boolean> {
+  if (viewerId === ownerId || visibility === "everyone") return true;
+  if (visibility !== "friends") return false;
+
+  const [userId1, userId2] = viewerId < ownerId
+    ? [viewerId, ownerId]
+    : [ownerId, viewerId];
+
+  const [friendship] = await db
+    .select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(and(
+      eq(friendshipsTable.userId1, userId1),
+      eq(friendshipsTable.userId2, userId2),
+    ))
+    .limit(1);
+
+  return !!friendship;
+}
 
 const byUser = (req: Express.Request) =>
   (req as AuthRequest).userId ?? "anonymous";
@@ -276,6 +296,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
           username:       usersTable.username,
           avatarColor:    usersTable.avatarColor,
           avatarImageUri: usersTable.avatarImageUri,
+          profileVisibility: usersTable.profileVisibility,
         },
       })
       .from(communityPostsTable)
@@ -283,7 +304,23 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = (await Promise.all(
+      rows.map(async (row) =>
+        (await canViewProfile(req.userId!, row.author.id, row.author.profileVisibility))
+          ? row
+          : null,
+      ),
+    )).filter((row) => row !== null).map((row) => ({
+      ...row,
+      author: {
+        id: row.author.id,
+        name: row.author.name,
+        username: row.author.username,
+        avatarColor: row.author.avatarColor,
+        avatarImageUri: row.author.avatarImageUri,
+      },
+    }));
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -301,7 +338,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
@@ -346,7 +383,23 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = (await Promise.all(
+      rows.map(async (row) =>
+        (await canViewProfile(req.userId!, row.author.id, row.author.profileVisibility))
+          ? row
+          : null,
+      ),
+    )).filter((row) => row !== null).map((row) => ({
+      ...row,
+      author: {
+        id: row.author.id,
+        name: row.author.name,
+        username: row.author.username,
+        avatarColor: row.author.avatarColor,
+        avatarImageUri: row.author.avatarImageUri,
+      },
+    }));
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -359,7 +412,7 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
