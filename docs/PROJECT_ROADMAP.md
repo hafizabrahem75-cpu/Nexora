@@ -41,19 +41,20 @@ verified on a running service/device.
 - Registration currently writes `emailVerified: true` immediately; it does not create
   or send a verification token. The login gate therefore does not provide real
   verification yet.
-- Email delivery is a development logger only and constructs links using
-  `REPLIT_DEV_DOMAIN`; replace with a provider-neutral email service and configured
-  public app/web URLs.
+- Email delivery is still a development logger only; link construction now uses
+  provider-neutral `PUBLIC_APP_URL` / `PUBLIC_WEB_URL` settings and the `nexora://`
+  scheme. Configure a real email provider before production.
 - Session tokens are stored in plaintext in the database. Store only a cryptographic
   hash and compare hashes during authentication/logout.
 - Password reset tokens are currently stored as plaintext; hash them at rest.
 - Review token single-use/expiry, rate limits, session revocation, password-change
   invalidation, account deletion, and concurrent registration uniqueness.
-- Admin routes use `requireAdmin`; verify the actual middleware and role model before
-  treating admin as safe. Admin endpoints expose user email and destructive actions.
+- Admin routes now validate the authenticated session and server-side `isDeveloper`
+  role; the client no longer ships or sends a shared admin secret. Add audit logging,
+  explicit role provisioning, and destructive-action safeguards before production.
 - Public image delivery and profile visibility need privacy-aware authorization rules.
-- Remove/rotate all credentials ever committed; removing them from the latest tree does
-  not erase them from Git history. Never expose admin secrets through `EXPO_PUBLIC_*`.
+- Rotate all credentials ever committed; removing them from the latest tree does not
+  erase them from Git history.
 
 ### P1 — core communication and social
 - Direct-message history has cursor-style `before` pagination, but conversation list
@@ -123,8 +124,9 @@ verified on a running service/device.
 
 - Provider-neutral mobile API URL configuration via `EXPO_PUBLIC_API_URL`.
 - Removed Replit-specific Expo Router origin and mobile Replit build scripts.
-- Replit configuration no longer contains the previously hard-coded developer/admin
-  values in the working branch. Rotate any previously exposed credentials separately.
+- API CORS and email-link configuration no longer depend on Replit environment variables.
+  Admin authorization uses the authenticated developer role. Rotate any previously
+  exposed credentials separately.
 - Added GitHub Actions checks and a manual-only Android release workflow.
 - Expo SDK 54 module declarations corrected to SDK 54-compatible ranges:
   `expo-contacts ~15.0.8`, `expo-crypto ~15.0.7`,
