@@ -1,56 +1,20 @@
-import { db, sessionsTable, usersTable } from "@workspace/db";
-import { and, eq, gt } from "drizzle-orm";
-import type { NextFunction, Request, Response } from "express";
+import type { NextFunction, Response } from "express";
+import { requireAuth, type AuthRequest } from "./requireAuth";
 
 /**
- * Protect administrative APIs with the user's authenticated session and the
- * server-side developer role. No shared secret is shipped inside the app.
+ * Admin access is an additional server-side role check on top of normal
+ * authentication. The role is read from the database, never from the client.
  */
 export async function requireAdmin(
-  req: Request,
+  req: AuthRequest,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
-
-  const token = authHeader.slice(7).trim();
-  if (!token) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
-
-  try {
-    const [session] = await db
-      .select({
-        isDeveloper: usersTable.isDeveloper,
-        suspendedAt: usersTable.suspendedAt,
-      })
-      .from(sessionsTable)
-      .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(
-        and(
-          eq(sessionsTable.token, token),
-          gt(sessionsTable.expiresAt, new Date()),
-        ),
-      )
-      .limit(1);
-
-    if (!session || session.suspendedAt) {
-      res.status(401).json({ error: "Invalid or expired session" });
-      return;
-    }
-
-    if (!session.isDeveloper) {
+  await requireAuth(req, res, () => {
+    if (!req.user?.isDeveloper) {
       res.status(403).json({ error: "Administrator access required" });
       return;
     }
-
     next();
-  } catch {
-    res.status(500).json({ error: "Unable to verify administrator access" });
-  }
+  });
 }
