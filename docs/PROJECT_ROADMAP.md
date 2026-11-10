@@ -45,13 +45,18 @@ verified on a running service/device.
   provider-neutral `PUBLIC_APP_URL` / `PUBLIC_WEB_URL` settings and the `nexora://`
   scheme. Configure a real email provider before production.
 - Session tokens are stored in plaintext in the database. Store only a cryptographic
-  hash and compare hashes during authentication/logout.
-- Password reset tokens are currently stored as plaintext; hash them at rest.
+  hash and compare hashes during authentication/logout. The mobile app also stores its
+  bearer token in AsyncStorage; move it to platform secure storage and plan a safe
+  migration/re-authentication for existing sessions.
+- Password reset and email-verification tokens are currently stored as plaintext;
+  hash them at rest and consume them atomically.
 - Review token single-use/expiry, rate limits, session revocation, password-change
   invalidation, account deletion, and concurrent registration uniqueness.
-- Admin routes now validate the authenticated session and server-side `isDeveloper`
-  role; the client no longer ships or sends a shared admin secret. Add audit logging,
-  explicit role provisioning, and destructive-action safeguards before production.
+- Admin routes validate the authenticated session and server-side `isDeveloper` role;
+  the client no longer ships or sends a shared admin secret. The admin screen is hidden
+  from ordinary users, but production still needs owner-only provisioning, a separate
+  admin origin/interface, step-up authentication/MFA, audit logging, and safeguards
+  against destructive actions affecting the owner account.
 - Public image delivery and profile visibility need privacy-aware authorization rules.
 - Rotate all credentials ever committed; removing them from the latest tree does not
   erase them from Git history.
@@ -140,6 +145,8 @@ verified on a running service/device.
 - [ ] No mock AI/video path remains in production flows.
 - [ ] No secrets committed; exposed credentials rotated.
 - [ ] Email verification and password reset tested end-to-end.
+- [ ] Session tokens and reset/verification tokens are hashed at rest; mobile tokens use secure storage.
+- [ ] Owner-only admin provisioning, separate admin surface, step-up authentication/MFA, and audit logs are complete.
 - [ ] Session and admin security review passed.
 - [ ] Database migration, backup, and restore verified.
 - [ ] API, mobile, realtime, and media integration tests pass.
