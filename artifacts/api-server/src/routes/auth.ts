@@ -97,7 +97,7 @@ router.post("/register", async (req, res) => {
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
-    res.status(201).json({ token: sessionToken, user: stripPassword(user) });
+    res.status(201).json({ token: hashOpaqueToken(sessionToken), user: stripPassword(user) });
   } catch (err) {
     req.log.error(err, "register failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -149,11 +149,11 @@ router.post("/login", async (req, res) => {
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
       userId: user.id,
-      token: sessionToken,
+      token: hashOpaqueToken(sessionToken),
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
-    res.json({ token: sessionToken, user: stripPassword(user) });
+    res.json({ token: hashOpaqueToken(sessionToken), user: stripPassword(user) });
   } catch (err) {
     req.log.error(err, "login failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -166,7 +166,7 @@ router.post("/logout", requireAuth, async (req: AuthRequest, res) => {
   const token = authHeader.slice(7).trim();
 
   try {
-    await db.delete(sessionsTable).where(eq(sessionsTable.token, token));
+    await db.delete(sessionsTable).where(eq(sessionsTable.token, hashOpaqueToken(token)));
     res.json({ ok: true });
   } catch (err) {
     req.log.error(err, "logout failed");
