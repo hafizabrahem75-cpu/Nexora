@@ -378,6 +378,7 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
           username:       usersTable.username,
           avatarColor:    usersTable.avatarColor,
           avatarImageUri: usersTable.avatarImageUri,
+          profileVisibility: usersTable.profileVisibility,
         },
       })
       .from(communityPostsTable)
@@ -405,7 +406,7 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
     const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
-      rows.length > 0
+      visibleRows.length > 0
         ? db
             .select({ postId: postLikesTable.postId })
             .from(postLikesTable)
