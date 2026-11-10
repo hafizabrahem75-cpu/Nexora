@@ -97,7 +97,7 @@ router.post("/register", async (req, res) => {
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
-    res.status(201).json({ token: hashOpaqueToken(sessionToken), user: stripPassword(user) });
+    res.status(201).json({ token: sessionToken, user: stripPassword(user) });
   } catch (err) {
     req.log.error(err, "register failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -153,7 +153,7 @@ router.post("/login", async (req, res) => {
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
-    res.json({ token: hashOpaqueToken(sessionToken), user: stripPassword(user) });
+    res.json({ token: sessionToken, user: stripPassword(user) });
   } catch (err) {
     req.log.error(err, "login failed");
     res.status(500).json({ error: "خطأ في الخادم" });
