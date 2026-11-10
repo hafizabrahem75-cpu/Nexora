@@ -6,6 +6,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import bcrypt from "bcryptjs";
+import { createOpaqueToken, hashOpaqueToken } from "../lib/tokens";
 import { and, eq, gt } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
@@ -20,7 +21,7 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const BCRYPT_ROUNDS = 12;
 
 function makeToken(): string {
-  return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+  return createOpaqueToken();
 }
 
 function stripPassword(user: typeof usersTable.$inferSelect) {
@@ -92,7 +93,7 @@ router.post("/register", async (req, res) => {
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
       userId: user.id,
-      token: sessionToken,
+      token: hashOpaqueToken(sessionToken),
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
