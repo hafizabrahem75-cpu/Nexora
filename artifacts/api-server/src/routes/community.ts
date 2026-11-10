@@ -249,21 +249,25 @@ router.post("/images", requireAuth, imageUploadLimiter, async (req: AuthRequest,
 });
 
 // ─── GET /community/images/:id ────────────────────────────────────────────────
-// Serve the binary image.  No auth required — images in public posts are
-// accessible to anyone who has the image ID (obtained from the post payload).
-// Only serves images that are linked to a published post (postId IS NOT NULL)
-// so unlinked/orphan uploads are never exposed.
-
-router.get("/images/:id", async (req, res) => {
+// Every image request re-checks the author's profile visibility. Images are not
+// treated as public merely because an image ID is known.
+router.get("/images/:id", requireAuth, async (req: AuthRequest, res) => {
   const imageId = req.params.id as string;
   try {
     const [row] = await db
-      .select({ mimeType: postImagesTable.mimeType, data: postImagesTable.data })
+      .select({
+        mimeType: postImagesTable.mimeType,
+        data: postImagesTable.data,
+        ownerId: communityPostsTable.userId,
+        profileVisibility: usersTable.profileVisibility,
+      })
       .from(postImagesTable)
+      .innerJoin(communityPostsTable, eq(postImagesTable.postId, communityPostsTable.id))
+      .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
       .where(and(eq(postImagesTable.id, imageId), isNotNull(postImagesTable.postId)))
       .limit(1);
 
-    if (!row) {
+    if (!row || !(await canViewProfile(req.userId!, row.ownerId, row.profileVisibility))) {
       res.status(404).json({ error: "الصورة غير موجودة" });
       return;
     }
@@ -271,11 +275,10 @@ router.get("/images/:id", async (req, res) => {
     const buffer = Buffer.from(row.data, "base64");
     res.set("Content-Type", row.mimeType);
     res.set("Content-Length", String(buffer.length));
-    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Cache-Control", "private, no-store");
     res.send(buffer);
   } catch (err) {
-    // req.log not available (no pino on this path) — use console as fallback
-    console.error("servePostImage failed", err);
+    req.log.error(err, "servePostImage failed");
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
