@@ -109,7 +109,7 @@ export default function AdminScreen() {
     } catch {
       setServerStatus("offline");
     }
-  }, []);
+  }, [token]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -120,7 +120,7 @@ export default function AdminScreen() {
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل الإحصاءات");
     } finally { setStatsLoading(false); }
-  }, [checkServerStatus]);
+  }, [checkServerStatus, token]);
 
   const loadTickets = useCallback(async (typeFilter = ticketFilter) => {
     setTicketsLoading(true);
@@ -131,7 +131,7 @@ export default function AdminScreen() {
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل التذاكر");
     } finally { setTicketsLoading(false); }
-  }, [ticketFilter]);
+  }, [ticketFilter, token]);
 
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
@@ -141,7 +141,7 @@ export default function AdminScreen() {
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل المستخدمين");
     } finally { setUsersLoading(false); }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     if (!isDev) return;
