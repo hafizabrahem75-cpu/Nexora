@@ -8,35 +8,24 @@ import { logger } from "./lib/logger";
 const app: Express = express();
 app.set("trust proxy", 1);
 
-const ALLOWED_ORIGINS: (string | RegExp)[] = [
-  /^http:\/\/localhost(:\d+)?$/,
-  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.expo\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/,
-];
-if (process.env["REPLIT_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
-}
-if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
-}
+// Exact, provider-neutral origins. Native clients do not rely on browser CORS.
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost",
+  "http://127.0.0.1",
+  ...(process.env["CORS_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+]);
 
-// ── CORS must come first so that ALL responses (including 429s from rate
-// limiters) carry the correct Access-Control-Allow-Origin header.
-// Without this, the browser treats rate-limit responses as network errors
-// because it cannot read a response that has no CORS headers.
+// CORS must run before limiters so browser clients can read rate-limit responses.
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) { callback(null, true); return; }
-    const allowed = ALLOWED_ORIGINS.some((o) =>
-      typeof o === "string" ? o === origin : o.test(origin),
-    );
-    if (allowed) {
+    if (!origin || ALLOWED_ORIGINS.has(origin)) {
       callback(null, true);
-    } else {
-      callback(null, false);
+      return;
     }
+    callback(null, false);
   },
   credentials: true,
 }));
@@ -64,16 +53,10 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
@@ -84,9 +67,7 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api", generalApiLimiter);
 
-// 8 MB limit to accommodate base64-encoded image uploads (5 MB image ≈ 6.9 MB base64).
-// The upload route is gated by requireAuth + a strict rate limiter so this
-// expanded limit is not exploitable by unauthenticated callers.
+// 8 MB limit accommodates the current 5 MB base64 image upload endpoint.
 app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true }));
 
