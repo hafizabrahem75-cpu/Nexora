@@ -35,7 +35,7 @@
     "expo-linking": "~8.0.10",
     "expo-location": "~19.0.8",
     "expo-router": "~6.0.17",
-    "expo-secure-store": "^56.0.4",
+    "expo-secure-store": "~15.0.7",
     "expo-splash-screen": "~31.0.12",
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
@@ -57,9 +57,9 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "expo-contacts": "^56.0.7",
-    "expo-crypto": "^56.0.4",
-    "expo-local-authentication": "^56.0.4",
-    "expo-notifications": "^56.0.15"
+    "expo-contacts": "~15.0.8",
+    "expo-crypto": "~15.0.7",
+    "expo-local-authentication": "~17.0.7",
+    "expo-notifications": "~0.32.11"
   }
 }
