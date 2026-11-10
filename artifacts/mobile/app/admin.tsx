@@ -19,16 +19,8 @@ import { useColors, useSettings } from "@/context/SettingsContext";
 import type { ThemeColors } from "@/context/SettingsContext";
 import { apiFetch } from "@/lib/api";
 
-const ADMIN_SECRET = process.env.EXPO_PUBLIC_ADMIN_SECRET ?? "";
-
-function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return apiFetch<T>(path, {
-    ...options,
-    headers: {
-      "x-admin-secret": ADMIN_SECRET,
-      ...(options.headers as Record<string, string>),
-    },
-  });
+function adminFetch<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
+  return apiFetch<T>(path, { ...options, token });
 }
 
 interface Stats {
@@ -112,7 +104,7 @@ export default function AdminScreen() {
   const checkServerStatus = useCallback(async () => {
     setServerStatus("checking");
     try {
-      await adminFetch("/healthz");
+      await adminFetch("/healthz", token ?? "");
       setServerStatus("online");
     } catch {
       setServerStatus("offline");
@@ -123,7 +115,7 @@ export default function AdminScreen() {
     setStatsLoading(true);
     checkServerStatus();
     try {
-      const data = await adminFetch<Stats>("/admin/stats");
+      const data = await adminFetch<Stats>("/admin/stats", token ?? "");
       setStats(data);
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل الإحصاءات");
@@ -134,7 +126,7 @@ export default function AdminScreen() {
     setTicketsLoading(true);
     try {
       const path = `/admin/support${typeFilter ? `?type=${typeFilter}` : ""}`;
-      const data = await adminFetch<{ submissions: SupportTicket[] }>(path);
+      const data = await adminFetch<{ submissions: SupportTicket[] }>(path, token ?? "");
       setTickets(data.submissions);
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل التذاكر");
@@ -144,7 +136,7 @@ export default function AdminScreen() {
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
     try {
-      const data = await adminFetch<{ users: AdminUser[] }>("/admin/users");
+      const data = await adminFetch<{ users: AdminUser[] }>("/admin/users", token ?? "");
       setUsers2(data.users);
     } catch (e: any) {
       Alert.alert("خطأ", e?.message ?? "فشل تحميل المستخدمين");
@@ -160,7 +152,7 @@ export default function AdminScreen() {
 
   const suspendUser = async (id: string, suspend: boolean) => {
     try {
-      await adminFetch(`/admin/users/${id}/${suspend ? "suspend" : "unsuspend"}`, { method: "PATCH" });
+      await adminFetch(`/admin/users/${id}/${suspend ? "suspend" : "unsuspend"}`, token ?? "", { method: "PATCH" });
       setUsers2((prev) => prev.map((u) => u.id === id ? { ...u, suspendedAt: suspend ? new Date().toISOString() : null } : u));
     } catch (e: any) { Alert.alert("خطأ", e?.message ?? "فشلت العملية"); }
   };
@@ -170,7 +162,7 @@ export default function AdminScreen() {
       { text: "إلغاء", style: "cancel" },
       { text: "حذف", style: "destructive", onPress: async () => {
         try {
-          await adminFetch(`/admin/users/${id}`, { method: "DELETE" });
+          await adminFetch(`/admin/users/${id}`, token ?? "", { method: "DELETE" });
           setUsers2((prev) => prev.filter((u) => u.id !== id));
         } catch (e: any) { Alert.alert("خطأ", e?.message ?? "فشل الحذف"); }
       }},
@@ -182,7 +174,7 @@ export default function AdminScreen() {
       { text: "إلغاء", style: "cancel" },
       { text: "حذف", style: "destructive", onPress: async () => {
         try {
-          await adminFetch(`/admin/content/support/${id}`, { method: "DELETE" });
+          await adminFetch(`/admin/content/support/${id}`, token ?? "", { method: "DELETE" });
           setTickets((prev) => prev.filter((t) => t.id !== id));
         } catch (e: any) { Alert.alert("خطأ", e?.message ?? "فشل الحذف"); }
       }},
@@ -193,7 +185,7 @@ export default function AdminScreen() {
     if (!announceTitle.trim() || !announceBody.trim()) return;
     setAnnouncing(true);
     try {
-      const res = await adminFetch<{ ok: boolean; recipients: number }>("/admin/announce", {
+      const res = await adminFetch<{ ok: boolean; recipients: number }>("/admin/announce", token ?? "", {
         method: "POST",
         body: JSON.stringify({ title: announceTitle.trim(), body: announceBody.trim() }),
         headers: { "Content-Type": "application/json" },
