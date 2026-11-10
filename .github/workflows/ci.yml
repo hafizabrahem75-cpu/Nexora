@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Typecheck and API build
+    name: Typecheck app packages and build API
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,7 +28,11 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck workspace
-        run: pnpm run typecheck
+      - name: Typecheck shared libraries
+        run: pnpm run typecheck:libs
+      - name: Typecheck API server
+        run: pnpm --filter @workspace/api-server run typecheck
+      - name: Typecheck mobile app
+        run: pnpm --filter @workspace/mobile run typecheck
       - name: Build API server
         run: pnpm --filter @workspace/api-server run build
