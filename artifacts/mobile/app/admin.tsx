@@ -148,7 +148,7 @@ export default function AdminScreen() {
     if (activeTab === "stats") loadStats();
     else if (activeTab === "tickets") loadTickets();
     else if (activeTab === "users") loadUsers();
-  }, [activeTab, isDev]);
+  }, [activeTab, isDev, loadStats, loadTickets, loadUsers]);
 
   const suspendUser = async (id: string, suspend: boolean) => {
     try {
