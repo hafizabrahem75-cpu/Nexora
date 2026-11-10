@@ -1,4 +1,4 @@
-import { db, followsTable, usersTable } from "@workspace/db";
+import { db, followsTable, friendshipsTable, usersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -6,6 +6,35 @@ import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
+
+async function canViewProfile(viewerId: string, ownerId: string): Promise<boolean> {
+  if (viewerId === ownerId) return true;
+
+  const [owner] = await db
+    .select({ visibility: usersTable.profileVisibility })
+    .from(usersTable)
+    .where(eq(usersTable.id, ownerId))
+    .limit(1);
+
+  if (!owner) return false;
+  if (owner.visibility === "everyone") return true;
+  if (owner.visibility !== "friends") return false;
+
+  const [userId1, userId2] = viewerId < ownerId
+    ? [viewerId, ownerId]
+    : [ownerId, viewerId];
+
+  const [friendship] = await db
+    .select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(and(
+      eq(friendshipsTable.userId1, userId1),
+      eq(friendshipsTable.userId2, userId2),
+    ))
+    .limit(1);
+
+  return !!friendship;
+}
 
 const followLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -82,6 +111,10 @@ router.delete("/:userId", requireAuth, followLimiter, async (req: AuthRequest, r
 router.get("/:userId/followers", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    if (!(await canViewProfile(req.userId!, userId))) {
+      res.status(404).json({ error: "القائمة غير متاحة" });
+      return;
+    }
     const rows = await db
       .select({
         id:             usersTable.id,
@@ -106,6 +139,10 @@ router.get("/:userId/followers", requireAuth, async (req: AuthRequest, res) => {
 router.get("/:userId/following", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    if (!(await canViewProfile(req.userId!, userId))) {
+      res.status(404).json({ error: "القائمة غير متاحة" });
+      return;
+    }
     const rows = await db
       .select({
         id:             usersTable.id,
