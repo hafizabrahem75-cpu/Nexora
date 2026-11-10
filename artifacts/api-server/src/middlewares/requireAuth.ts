@@ -4,7 +4,8 @@ import {
   usersTable,
   type PublicUser,
 } from "@workspace/db";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
+import { hashOpaqueToken } from "../lib/tokens";
 import { NextFunction, Request, Response } from "express";
 
 export interface AuthRequest extends Request {
@@ -24,10 +25,17 @@ export async function requireAuth(
   }
 
   const token = authHeader.slice(7).trim();
+  if (!token || token.length > 512) {
+    res.status(401).json({ error: "غير مصرح — يرجى تسجيل الدخول" });
+    return;
+  }
+  const tokenHash = hashOpaqueToken(token);
 
   try {
     const [row] = await db
       .select({
+        sessionId: sessionsTable.id,
+        storedToken: sessionsTable.token,
         userId: sessionsTable.userId,
         user: {
           id: usersTable.id,
@@ -49,7 +57,7 @@ export async function requireAuth(
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
       .where(
         and(
-          eq(sessionsTable.token, token),
+          or(eq(sessionsTable.token, tokenHash), eq(sessionsTable.token, token)),
           gt(sessionsTable.expiresAt, new Date()),
         ),
       )
@@ -60,6 +68,13 @@ export async function requireAuth(
         .status(401)
         .json({ error: "الجلسة منتهية الصلاحية — يرجى تسجيل الدخول مجدداً" });
       return;
+    }
+
+    // Opportunistically upgrade legacy plaintext sessions after successful lookup.
+    if (row.storedToken !== tokenHash) {
+      await db.update(sessionsTable)
+        .set({ token: tokenHash })
+        .where(and(eq(sessionsTable.id, row.sessionId), eq(sessionsTable.token, row.storedToken)));
     }
 
     if (row.user.suspendedAt) {
