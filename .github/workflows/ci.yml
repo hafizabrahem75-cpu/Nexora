@@ -1,0 +1,50 @@
+name: Nexora CI
+
+on:
+  push:
+    branches: [main, "fix/**", "feature/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Dependency, type and API validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install and refresh lockfile
+        run: pnpm install --no-frozen-lockfile
+      - name: Commit lockfile updates when needed
+        if: github.event_name == 'push'
+        run: |
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml
+            git commit -m "chore: refresh pnpm lockfile"
+            git push
+          fi
+      - name: Typecheck shared libraries
+        run: pnpm run typecheck:libs
+      - name: Typecheck API server
+        run: pnpm --filter @workspace/api-server run typecheck
+      - name: Typecheck mobile app
+        run: pnpm --filter @workspace/mobile run typecheck
+      - name: Build API server
+        run: pnpm --filter @workspace/api-server run build

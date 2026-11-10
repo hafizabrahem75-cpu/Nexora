@@ -1,0 +1,49 @@
+name: Nexora Android Release Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android APK when release is approved
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check Expo SDK dependency compatibility
+        working-directory: artifacts/mobile
+        run: pnpm exec expo install --check
+      - name: Generate native Android project
+        working-directory: artifacts/mobile
+        run: pnpm exec expo prebuild --platform android --no-install
+      - name: Build release APK
+        working-directory: artifacts/mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexora-android-apk
+          path: artifacts/mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

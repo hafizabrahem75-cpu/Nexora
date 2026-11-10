@@ -1,17 +1,20 @@
-import { NextFunction, Request, Response } from "express";
+import type { NextFunction, Response } from "express";
+import { requireAuth, type AuthRequest } from "./requireAuth";
 
-export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const secret = process.env["DEVELOPER_SECRET"];
-  if (!secret) {
-    res.status(503).json({ error: "Admin not configured" });
-    return;
-  }
-
-  const provided = req.headers["x-admin-secret"];
-  if (!provided || provided !== secret) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  next();
+/**
+ * Admin access is an additional server-side role check on top of normal
+ * authentication. The role is read from the database, never from the client.
+ */
+export async function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  await requireAuth(req, res, () => {
+    if (!req.user?.isDeveloper) {
+      res.status(403).json({ error: "Administrator access required" });
+      return;
+    }
+    next();
+  });
 }

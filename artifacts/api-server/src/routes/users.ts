@@ -18,6 +18,29 @@ function publicUser(u: typeof usersTable.$inferSelect) {
   };
 }
 
+async function canViewProfile(
+  viewerId: string,
+  ownerId: string,
+  visibility: string,
+): Promise<boolean> {
+  if (viewerId === ownerId || visibility === "everyone") return true;
+  if (visibility !== "friends") return false;
+
+  const [userId1, userId2] =
+    viewerId < ownerId ? [viewerId, ownerId] : [ownerId, viewerId];
+  const [friendship] = await db
+    .select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(
+      and(
+        eq(friendshipsTable.userId1, userId1),
+        eq(friendshipsTable.userId2, userId2),
+      ),
+    )
+    .limit(1);
+  return !!friendship;
+}
+
 // ─── Check username availability (public) ────────────────────────────────────
 router.get("/check-username", async (req, res) => {
   const username = (req.query["username"] as string | undefined)?.toLowerCase().trim();
@@ -92,14 +115,29 @@ router.get("/search", requireAuth, async (req: AuthRequest, res) => {
         username: usersTable.username,
         avatarColor: usersTable.avatarColor,
         avatarImageUri: usersTable.avatarImageUri,
+        profileVisibility: usersTable.profileVisibility,
       })
       .from(usersTable)
-      .where(
-        ilike(usersTable.username, term),
-      )
+      .where(ilike(usersTable.username, term))
       .limit(20);
 
-    res.json({ users: results.filter((u) => u.id !== req.userId) });
+    const visibleUsers = await Promise.all(
+      results
+        .filter((candidate) => candidate.id !== req.userId)
+        .map(async (candidate) =>
+          (await canViewProfile(req.userId!, candidate.id, candidate.profileVisibility))
+            ? {
+                id: candidate.id,
+                name: candidate.name,
+                username: candidate.username,
+                avatarColor: candidate.avatarColor,
+                avatarImageUri: candidate.avatarImageUri,
+              }
+            : null,
+        ),
+    );
+
+    res.json({ users: visibleUsers.filter((candidate) => candidate !== null) });
   } catch (err) {
     req.log.error(err, "searchUsers failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -119,15 +157,18 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
         avatarColor:    usersTable.avatarColor,
         avatarImageUri: usersTable.avatarImageUri,
         createdAt:      usersTable.createdAt,
+        profileVisibility: usersTable.profileVisibility,
       })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
 
-    if (!user) {
+    if (!user || !(await canViewProfile(req.userId!, userId, user.profileVisibility))) {
       res.status(404).json({ error: "المستخدم غير موجود" });
       return;
     }
+
+    const { profileVisibility: _visibility, ...visibleUser } = user;
 
     const [[postsRow], [friendsRow], [followersRow], [followingRow], isFollowingRow] =
       await Promise.all([
@@ -145,7 +186,7 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
       ]);
 
     res.json({
-      user,
+      user: visibleUser,
       stats: {
         postsCount:     postsRow?.value ?? 0,
         friendsCount:   friendsRow?.value ?? 0,
@@ -164,6 +205,17 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
 router.get("/profile/:userId/posts", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    const [owner] = await db
+      .select({ profileVisibility: usersTable.profileVisibility })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (!owner || !(await canViewProfile(req.userId!, userId, owner.profileVisibility))) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+
     const rows = await db
       .select({
         id:            communityPostsTable.id,
@@ -214,17 +266,19 @@ router.get("/:username", requireAuth, async (req: AuthRequest, res) => {
         username: usersTable.username,
         avatarColor: usersTable.avatarColor,
         avatarImageUri: usersTable.avatarImageUri,
+        profileVisibility: usersTable.profileVisibility,
       })
       .from(usersTable)
       .where(eq(usersTable.username, (username as string).toLowerCase()))
       .limit(1);
 
-    if (!user) {
+    if (!user || !(await canViewProfile(req.userId!, user.id, user.profileVisibility))) {
       res.status(404).json({ error: "المستخدم غير موجود" });
       return;
     }
 
-    res.json({ user });
+    const { profileVisibility: _visibility, ...visibleUser } = user;
+    res.json({ user: visibleUser });
   } catch (err) {
     req.log.error(err, "getUserByUsername failed");
     res.status(500).json({ error: "خطأ في الخادم" });

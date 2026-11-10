@@ -10,6 +10,8 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -69,14 +71,44 @@ export type AuthContextValue = AuthState & AuthActions;
 
 const TOKEN_KEY = "@nexora_session_token";
 
-const loadToken = (): Promise<string | null> =>
-  AsyncStorage.getItem(TOKEN_KEY);
+async function loadToken(): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return AsyncStorage.getItem(TOKEN_KEY);
+  }
 
-const saveToken = (token: string): Promise<void> =>
-  AsyncStorage.setItem(TOKEN_KEY, token);
+  const secureToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (secureToken) return secureToken;
 
-const clearToken = (): Promise<void> =>
-  AsyncStorage.removeItem(TOKEN_KEY);
+  // One-time migration from the legacy, less-protected AsyncStorage entry.
+  const legacyToken = await AsyncStorage.getItem(TOKEN_KEY);
+  if (!legacyToken) return null;
+
+  await SecureStore.setItemAsync(TOKEN_KEY, legacyToken);
+  await AsyncStorage.removeItem(TOKEN_KEY);
+  return legacyToken;
+}
+
+async function saveToken(token: string): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.setItem(TOKEN_KEY, token);
+    return;
+  }
+
+  await SecureStore.setItemAsync(TOKEN_KEY, token);
+  await AsyncStorage.removeItem(TOKEN_KEY);
+}
+
+async function clearToken(): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(TOKEN_KEY);
+    return;
+  }
+
+  await Promise.all([
+    SecureStore.deleteItemAsync(TOKEN_KEY),
+    AsyncStorage.removeItem(TOKEN_KEY),
+  ]);
+}
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 

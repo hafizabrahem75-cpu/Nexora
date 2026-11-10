@@ -15,11 +15,25 @@ import { count, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { requireAdmin } from "../middlewares/requireAdmin";
+import type { AuthRequest } from "../middlewares/requireAuth";
 import { wsManager } from "../lib/wsManager";
 
 const router: IRouter = Router();
 
 router.use(requireAdmin);
+
+async function isProtectedDeveloperTarget(req: Express.Request, targetId: string): Promise<boolean> {
+  const authReq = req as AuthRequest;
+  if (authReq.userId === targetId) return true;
+
+  const [target] = await db
+    .select({ isDeveloper: usersTable.isDeveloper })
+    .from(usersTable)
+    .where(eq(usersTable.id, targetId))
+    .limit(1);
+
+  return target?.isDeveloper === true;
+}
 
 // ─── GET /admin/stats ─────────────────────────────────────────────────────────
 router.get("/stats", async (_req, res) => {
@@ -90,6 +104,10 @@ router.get("/users", async (req, res) => {
 router.patch("/users/:id/suspend", async (req, res) => {
   const id = req.params["id"] as string;
   try {
+    if (await isProtectedDeveloperTarget(req, id)) {
+      res.status(403).json({ error: "لا يمكن إيقاف حساب المالك أو حساب مطور" });
+      return;
+    }
     await db
       .update(usersTable)
       .set({ suspendedAt: new Date(), updatedAt: new Date() })
@@ -104,6 +122,10 @@ router.patch("/users/:id/suspend", async (req, res) => {
 router.patch("/users/:id/unsuspend", async (req, res) => {
   const id = req.params["id"] as string;
   try {
+    if (await isProtectedDeveloperTarget(req, id)) {
+      res.status(403).json({ error: "لا يمكن تغيير حالة حساب المالك أو حساب مطور" });
+      return;
+    }
     await db
       .update(usersTable)
       .set({ suspendedAt: null, updatedAt: new Date() })
@@ -118,6 +140,10 @@ router.patch("/users/:id/unsuspend", async (req, res) => {
 router.delete("/users/:id", async (req, res) => {
   const id = req.params["id"] as string;
   try {
+    if (await isProtectedDeveloperTarget(req, id)) {
+      res.status(403).json({ error: "لا يمكن حذف حساب المالك أو حساب مطور" });
+      return;
+    }
     await db.delete(usersTable).where(eq(usersTable.id, id));
     res.json({ ok: true });
   } catch (err) {
