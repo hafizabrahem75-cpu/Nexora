@@ -39,6 +39,7 @@ export async function requireAuth(
           emailVerified: usersTable.emailVerified,
           profileVisibility: usersTable.profileVisibility,
           messagingPrivacy: usersTable.messagingPrivacy,
+          isDeveloper: usersTable.isDeveloper,
           suspendedAt: usersTable.suspendedAt,
           createdAt: usersTable.createdAt,
           updatedAt: usersTable.updatedAt,
