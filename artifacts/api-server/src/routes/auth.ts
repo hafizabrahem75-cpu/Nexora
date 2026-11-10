@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import { createOpaqueToken, hashOpaqueToken } from "../lib/tokens";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../lib/email";
@@ -286,7 +286,7 @@ router.post("/forgot-password", async (req, res) => {
       const token = makeToken();
       await db.insert(passwordResetTokensTable).values({
         userId: user.id,
-        token,
+        token: hashOpaqueToken(token),
         expiresAt: new Date(Date.now() + RESET_TTL_MS),
       });
       await sendPasswordResetEmail(user.email, token);
@@ -319,7 +319,10 @@ router.post("/reset-password", async (req, res) => {
       .from(passwordResetTokensTable)
       .where(
         and(
-          eq(passwordResetTokensTable.token, token),
+          or(
+            eq(passwordResetTokensTable.token, hashOpaqueToken(token)),
+            eq(passwordResetTokensTable.token, token),
+          ),
           eq(passwordResetTokensTable.used, false),
           gt(passwordResetTokensTable.expiresAt, new Date()),
         ),
@@ -331,16 +334,26 @@ router.post("/reset-password", async (req, res) => {
       return;
     }
 
+    // Claim the reset token exactly once before changing the password.
+    const [claimed] = await db
+      .update(passwordResetTokensTable)
+      .set({ used: true, token: hashOpaqueToken(token) })
+      .where(and(
+        eq(passwordResetTokensTable.id, row.id),
+        eq(passwordResetTokensTable.used, false),
+      ))
+      .returning({ id: passwordResetTokensTable.id });
+
+    if (!claimed) {
+      res.status(400).json({ error: "رابط إعادة التعيين غير صالح أو منتهي الصلاحية" });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     await db
       .update(usersTable)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(usersTable.id, row.userId));
-
-    await db
-      .update(passwordResetTokensTable)
-      .set({ used: true })
-      .where(eq(passwordResetTokensTable.id, row.id));
 
     await db
       .delete(sessionsTable)
@@ -369,7 +382,10 @@ router.post("/verify-email", async (req, res) => {
       .from(emailVerificationTokensTable)
       .where(
         and(
-          eq(emailVerificationTokensTable.token, parsed.data.token),
+          or(
+            eq(emailVerificationTokensTable.token, hashOpaqueToken(parsed.data.token)),
+            eq(emailVerificationTokensTable.token, parsed.data.token),
+          ),
           gt(emailVerificationTokensTable.expiresAt, new Date()),
         ),
       )
@@ -380,14 +396,20 @@ router.post("/verify-email", async (req, res) => {
       return;
     }
 
+    const [claimed] = await db
+      .delete(emailVerificationTokensTable)
+      .where(eq(emailVerificationTokensTable.id, row.id))
+      .returning({ userId: emailVerificationTokensTable.userId });
+
+    if (!claimed) {
+      res.status(400).json({ error: "رابط التحقق غير صالح أو منتهي الصلاحية" });
+      return;
+    }
+
     await db
       .update(usersTable)
       .set({ emailVerified: true, updatedAt: new Date() })
-      .where(eq(usersTable.id, row.userId));
-
-    await db
-      .delete(emailVerificationTokensTable)
-      .where(eq(emailVerificationTokensTable.id, row.id));
+      .where(eq(usersTable.id, claimed.userId));
 
     res.json({ ok: true, message: "تم التحقق من البريد الإلكتروني بنجاح" });
   } catch (err) {
