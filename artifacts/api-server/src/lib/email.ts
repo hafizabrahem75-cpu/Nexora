@@ -1,41 +1,33 @@
 import { logger } from "./logger";
 
 /**
- * Dev-mode email stub — logs links to the console instead of sending real emails.
- * Replace the body of each function with nodemailer / Resend / SendGrid in production.
+ * Development-only email adapter.
+ * Production delivery must be supplied by a configured email provider.
  */
-
-function devWebUrl(path: string, token: string): string {
-  const domain = process.env.REPLIT_DEV_DOMAIN;
-  return domain
-    ? `https://${domain}/${path}?token=${token}`
-    : `http://localhost:8080/${path}?token=${token}`;
+function publicLink(path: string, token: string): string {
+  const baseUrl = (process.env["PUBLIC_APP_URL"] ?? process.env["PUBLIC_WEB_URL"] ?? "http://localhost:8080")
+    .replace(/\/+$/, "");
+  return `${baseUrl}/${path}?token=${encodeURIComponent(token)}`;
 }
 
-export async function sendPasswordResetEmail(
-  email: string,
-  token: string,
-): Promise<void> {
+export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
   logger.info(
     {
       email,
-      webUrl: devWebUrl("forgot-password", token),
-      nativeLink: `mobile://reset-password?token=${token}`,
+      webUrl: publicLink("reset-password", token),
+      nativeLink: `nexora://reset-password?token=${encodeURIComponent(token)}`,
     },
-    "[DEV] Password reset email (not sent in dev — open webUrl in browser)",
+    "[DEV] Password reset email not sent; configure a production email provider",
   );
 }
 
-export async function sendVerificationEmail(
-  email: string,
-  token: string,
-): Promise<void> {
+export async function sendVerificationEmail(email: string, token: string): Promise<void> {
   logger.info(
     {
       email,
-      webUrl: devWebUrl("verify-email", token),
-      nativeLink: `mobile://verify-email?token=${token}`,
+      webUrl: publicLink("verify-email", token),
+      nativeLink: `nexora://verify-email?token=${encodeURIComponent(token)}`,
     },
-    "[DEV] Email verification (not sent in dev — open webUrl in browser)",
+    "[DEV] Verification email not sent; configure a production email provider",
   );
 }
