@@ -28,6 +28,20 @@ async function canViewProfile(viewerId: string, ownerId: string, visibility: str
   return !!friendship;
 }
 
+async function canAccessPost(viewerId: string, postId: string): Promise<boolean> {
+  const [post] = await db
+    .select({
+      ownerId: communityPostsTable.userId,
+      profileVisibility: usersTable.profileVisibility,
+    })
+    .from(communityPostsTable)
+    .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
+    .where(eq(communityPostsTable.id, postId))
+    .limit(1);
+
+  return !!post && canViewProfile(viewerId, post.ownerId, post.profileVisibility);
+}
+
 const byUser = (req: Express.Request) =>
   (req as AuthRequest).userId ?? "anonymous";
 
@@ -587,6 +601,10 @@ router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const inserted = await db
       .insert(postLikesTable)
       .values({ userId: req.userId!, postId })
@@ -634,6 +652,10 @@ router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest
 router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const deleted = await db
       .delete(postLikesTable)
       .where(
@@ -676,13 +698,7 @@ router.get("/posts/:id/likes", requireAuth, async (req: AuthRequest, res) => {
   const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
   try {
-    const [post] = await db
-      .select({ id: communityPostsTable.id })
-      .from(communityPostsTable)
-      .where(eq(communityPostsTable.id, postId))
-      .limit(1);
-
-    if (!post) {
+    if (!(await canAccessPost(req.userId!, postId))) {
       res.status(404).json({ error: "المنشور غير موجود" });
       return;
     }
@@ -724,6 +740,10 @@ router.get("/posts/:id/likes", requireAuth, async (req: AuthRequest, res) => {
 router.get("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const rows = await db
       .select({
         id:        postCommentsTable.id,
@@ -763,6 +783,10 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
     return;
   }
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const [inserted] = await db
       .insert(postCommentsTable)
       .values({ postId, userId: req.userId!, content: parsed.data.content })
@@ -813,6 +837,10 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
 router.post("/posts/:id/save", requireAuth, saveLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     await db
       .insert(savedPostsTable)
       .values({ userId: req.userId!, postId })
@@ -828,6 +856,10 @@ router.post("/posts/:id/save", requireAuth, saveLimiter, async (req: AuthRequest
 router.delete("/posts/:id/save", requireAuth, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(req.userId!, postId))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     await db
       .delete(savedPostsTable)
       .where(and(eq(savedPostsTable.userId, req.userId!), eq(savedPostsTable.postId, postId)));
