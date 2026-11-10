@@ -44,12 +44,14 @@ verified on a running service/device.
 - Email delivery is still a development logger only; link construction now uses
   provider-neutral `PUBLIC_APP_URL` / `PUBLIC_WEB_URL` settings and the `nexora://`
   scheme. Configure a real email provider before production.
-- Session tokens are stored in plaintext in the database. Store only a cryptographic
-  hash and compare hashes during authentication/logout. The mobile app also stores its
-  bearer token in AsyncStorage; move it to platform secure storage and plan a safe
-  migration/re-authentication for existing sessions.
-- Password reset and email-verification tokens are currently stored as plaintext;
-  hash them at rest and consume them atomically.
+- New session tokens are now stored as SHA-256 digests; existing plaintext sessions are
+  upgraded to digests on their next authenticated request. The raw bearer token is
+  returned only to the client. Native mobile storage now uses Expo SecureStore with a
+  one-time migration from AsyncStorage; web retains its platform fallback. Complete
+  runtime validation and review token revocation/device-session management.
+- Password-reset and email-verification tokens are now stored as SHA-256 digests,
+  accept legacy plaintext tokens only during transition, and are consumed once. Add
+  tests for expiry, replay, concurrency, and failure recovery.
 - Review token single-use/expiry, rate limits, session revocation, password-change
   invalidation, account deletion, and concurrent registration uniqueness.
 - Admin routes validate the authenticated session and server-side `isDeveloper` role;
@@ -57,7 +59,10 @@ verified on a running service/device.
   from ordinary users, but production still needs owner-only provisioning, a separate
   admin origin/interface, step-up authentication/MFA, audit logging, and safeguards
   against destructive actions affecting the owner account.
-- Public image delivery and profile visibility need privacy-aware authorization rules.
+- Profile visibility is enforced in profile, username-search, profile-post, community-feed,
+  following-feed, and image-delivery API paths. Private image requests require authentication
+  and use `private, no-store` caching. Continue auditing follower lists, notifications,
+  message discovery, and indirect data paths.
 - Rotate all credentials ever committed; removing them from the latest tree does not
   erase them from Git history.
 
@@ -145,7 +150,7 @@ verified on a running service/device.
 - [ ] No mock AI/video path remains in production flows.
 - [ ] No secrets committed; exposed credentials rotated.
 - [ ] Email verification and password reset tested end-to-end.
-- [ ] Session tokens and reset/verification tokens are hashed at rest; mobile tokens use secure storage.
+- [ ] Session/reset/verification token hashing, migration, revocation, replay and expiry tests pass; native mobile tokens use secure storage.
 - [ ] Owner-only admin provisioning, separate admin surface, step-up authentication/MFA, and audit logs are complete.
 - [ ] Session and admin security review passed.
 - [ ] Database migration, backup, and restore verified.
