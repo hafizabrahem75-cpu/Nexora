@@ -149,7 +149,7 @@ router.post("/login", async (req, res) => {
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
       userId: user.id,
-      token: sessionToken,
+      token: hashSessionToken(sessionToken),
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
