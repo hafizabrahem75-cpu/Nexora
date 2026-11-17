@@ -352,3 +352,11 @@ No production secrets, paid-service credentials, or API keys are required for th
 - Image responses use private/no-store caching and `X-Content-Type-Options: nosniff`.
 - This does not complete community privacy: feed queries, post detail, comments, likes, saves, reports, and follow/search behavior still require a systematic authorization review.
 - Runtime tests and mobile image loading regression tests have not yet been run. Public unauthenticated image embedding is no longer supported by this endpoint; verify intended UX before release.
+
+
+## Community feed visibility checkpoint — 2026-11-17
+- Global community feed and following feed now filter post rows against the author's profile visibility before returning post content or image identifiers.
+- `everyone` posts are visible; `friends` posts require a friendship; unknown/restricted visibility values are hidden from other users; owners can see their own posts.
+- This adds per-row friendship lookups and is a correctness-first implementation. Before production, optimize with a joined/CTE query and add pagination to avoid N+1 query load.
+- Still not complete: comments, likes lists, saved posts, post detail, notifications, search, follow requests, and all image/mobile loading paths need authorization review and tests.
+- No runtime or automated security regression test has been executed for this change yet.
