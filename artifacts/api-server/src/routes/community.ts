@@ -1,4 +1,4 @@
-import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable } from "@workspace/db";
+import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable, friendshipsTable } from "@workspace/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -234,12 +234,19 @@ router.post("/images", requireAuth, imageUploadLimiter, async (req: AuthRequest,
 // Only serves images that are linked to a published post (postId IS NOT NULL)
 // so unlinked/orphan uploads are never exposed.
 
-router.get("/images/:id", async (req, res) => {
+router.get("/images/:id", requireAuth, async (req: AuthRequest, res) => {
   const imageId = req.params.id as string;
   try {
     const [row] = await db
-      .select({ mimeType: postImagesTable.mimeType, data: postImagesTable.data })
+      .select({
+        mimeType: postImagesTable.mimeType,
+        data: postImagesTable.data,
+        ownerId: usersTable.id,
+        visibility: usersTable.profileVisibility,
+      })
       .from(postImagesTable)
+      .innerJoin(communityPostsTable, eq(postImagesTable.postId, communityPostsTable.id))
+      .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
       .where(and(eq(postImagesTable.id, imageId), isNotNull(postImagesTable.postId)))
       .limit(1);
 
@@ -248,10 +255,31 @@ router.get("/images/:id", async (req, res) => {
       return;
     }
 
+    if (row.ownerId !== req.userId) {
+      if (row.visibility === "friends") {
+        const [userId1, userId2] = row.ownerId < req.userId!
+          ? [row.ownerId, req.userId!] : [req.userId!, row.ownerId];
+        const [friendship] = await db.select({ id: friendshipsTable.id })
+          .from(friendshipsTable)
+          .where(and(
+            eq(friendshipsTable.userId1, userId1),
+            eq(friendshipsTable.userId2, userId2),
+          )).limit(1);
+        if (!friendship) {
+          res.status(404).json({ error: "الصورة غير موجودة" });
+          return;
+        }
+      } else if (row.visibility !== "everyone") {
+        res.status(404).json({ error: "الصورة غير موجودة" });
+        return;
+      }
+    }
+
     const buffer = Buffer.from(row.data, "base64");
     res.set("Content-Type", row.mimeType);
     res.set("Content-Length", String(buffer.length));
-    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Cache-Control", "private, no-store");
+    res.set("X-Content-Type-Options", "nosniff");
     res.send(buffer);
   } catch (err) {
     // req.log not available (no pino on this path) — use console as fallback
