@@ -10,6 +10,8 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -69,14 +71,61 @@ export type AuthContextValue = AuthState & AuthActions;
 
 const TOKEN_KEY = "@nexora_session_token";
 
-const loadToken = (): Promise<string | null> =>
-  AsyncStorage.getItem(TOKEN_KEY);
+/**
+ * Native platforms use Android Keystore / iOS Keychain via SecureStore.
+ * Web keeps its existing AsyncStorage behavior because SecureStore is native-only.
+ *
+ * On native, migrate the old AsyncStorage token exactly once:
+ * write to SecureStore, read it back to verify, and only then delete the old copy.
+ * If secure storage fails, throw and do not silently fall back to plaintext storage.
+ */
+const loadToken = async (): Promise<string | null> => {
+  if (Platform.OS === "web") {
+    return AsyncStorage.getItem(TOKEN_KEY);
+  }
 
-const saveToken = (token: string): Promise<void> =>
-  AsyncStorage.setItem(TOKEN_KEY, token);
+  const secureToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (secureToken) return secureToken;
 
-const clearToken = (): Promise<void> =>
-  AsyncStorage.removeItem(TOKEN_KEY);
+  const legacyToken = await AsyncStorage.getItem(TOKEN_KEY);
+  if (!legacyToken) return null;
+
+  await SecureStore.setItemAsync(TOKEN_KEY, legacyToken);
+  const verifiedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+
+  if (verifiedToken !== legacyToken) {
+    throw new Error("تعذر التحقق من نقل جلسة الدخول إلى التخزين الآمن");
+  }
+
+  await AsyncStorage.removeItem(TOKEN_KEY);
+  return verifiedToken;
+};
+
+const saveToken = async (token: string): Promise<void> => {
+  if (Platform.OS === "web") {
+    await AsyncStorage.setItem(TOKEN_KEY, token);
+    return;
+  }
+
+  await SecureStore.setItemAsync(TOKEN_KEY, token);
+  const verifiedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (verifiedToken !== token) {
+    throw new Error("تعذر حفظ جلسة الدخول في التخزين الآمن");
+  }
+
+  // Remove any leftover legacy copy only after secure storage is verified.
+  await AsyncStorage.removeItem(TOKEN_KEY);
+};
+
+const clearToken = async (): Promise<void> => {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(TOKEN_KEY);
+    return;
+  }
+
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await AsyncStorage.removeItem(TOKEN_KEY);
+};
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
