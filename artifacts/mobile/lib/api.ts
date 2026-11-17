@@ -1,13 +1,19 @@
 /**
  * Lightweight API client for Nexora mobile.
  *
- * Constructs the correct base URL for both:
- *  - Replit web preview  → relative /api path works via the proxy
- *  - Expo Go on device   → must use the full HTTPS dev domain
+ * API URL precedence:
+ * 1. EXPO_PUBLIC_API_URL (recommended for standalone environments)
+ * 2. EXPO_PUBLIC_DOMAIN (temporary backwards compatibility)
+ * 3. Relative /api path for same-origin web previews
  */
 
-const domain = process.env.EXPO_PUBLIC_DOMAIN;
-export const API_BASE = domain ? `https://${domain}/api` : "/api";
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+const legacyDomain = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+export const API_BASE = configuredApiUrl
+  ? configuredApiUrl.replace(/\\/+$/, "")
+  : legacyDomain
+    ? `https://${legacyDomain.replace(/^https?:\\/\\//, "")}/api`
+    : "/api";
 
 export class ApiError extends Error {
   constructor(
