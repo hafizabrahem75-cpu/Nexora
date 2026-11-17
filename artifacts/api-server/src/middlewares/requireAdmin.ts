@@ -1,17 +1,21 @@
 import { NextFunction, Request, Response } from "express";
+import { requireAuth, type AuthRequest } from "./requireAuth";
 
-export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const secret = process.env["DEVELOPER_SECRET"];
-  if (!secret) {
-    res.status(503).json({ error: "Admin not configured" });
-    return;
-  }
-
-  const provided = req.headers["x-admin-secret"];
-  if (!provided || provided !== secret) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  next();
+/**
+ * Admin access is tied to an authenticated account with the server-side
+ * isDeveloper flag. No shared admin secret is shipped in the mobile client.
+ */
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  await requireAuth(req as AuthRequest, res, () => {
+    const authReq = req as AuthRequest;
+    if (!authReq.user?.isDeveloper) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  });
 }
