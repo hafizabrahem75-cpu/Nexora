@@ -571,7 +571,7 @@ router.put("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
       .where(eq(communityPostsTable.id, postId))
       .returning();
 
-    wsManager.broadcastAll({ type: "post_updated", payload: { postId, content: updated!.content } });
+    wsManager.broadcast([userId], { type: "post_updated", payload: { postId, content: updated!.content } });
     res.json({ post: updated });
   } catch (err) {
     req.log.error(err, "editPost failed");
@@ -594,7 +594,7 @@ router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 
     await db.delete(communityPostsTable).where(eq(communityPostsTable.id, postId));
     // post_likes, post_comments and post_images cascade automatically
-    wsManager.broadcastAll({ type: "post_deleted", payload: { postId } });
+    wsManager.broadcast([userId], { type: "post_deleted", payload: { postId } });
     res.json({ deleted: true });
   } catch (err) {
     req.log.error(err, "deletePost failed");
@@ -636,7 +636,7 @@ router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest
       return;
     }
 
-    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+    wsManager.broadcast([req.userId!, updated.ownerId], { type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
 
     if (updated.ownerId !== req.userId) {
       wsManager.notifyPostLiked({
@@ -684,9 +684,9 @@ router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthReque
       .update(communityPostsTable)
       .set({ likesCount: sql`GREATEST(${communityPostsTable.likesCount} - 1, 0)` })
       .where(eq(communityPostsTable.id, postId))
-      .returning({ likesCount: communityPostsTable.likesCount });
+      .returning({ likesCount: communityPostsTable.likesCount, ownerId: communityPostsTable.userId });
 
-    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
+    wsManager.broadcast(updated ? [req.userId!, updated.ownerId] : [req.userId!], { type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
     res.json({ likesCount: updated?.likesCount ?? 0 });
   } catch (err) {
     req.log.error(err, "unlikePost failed");
@@ -826,7 +826,7 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
       },
     };
 
-    wsManager.broadcastAll({
+    wsManager.broadcast(updated ? [req.userId!, updated.ownerId] : [req.userId!], {
       type: "post_commented",
       payload: { postId, comment, commentsCount: updated?.commentsCount ?? 0 },
     });
