@@ -360,3 +360,11 @@ No production secrets, paid-service credentials, or API keys are required for th
 - This adds per-row friendship lookups and is a correctness-first implementation. Before production, optimize with a joined/CTE query and add pagination to avoid N+1 query load.
 - Still not complete: comments, likes lists, saved posts, post detail, notifications, search, follow requests, and all image/mobile loading paths need authorization review and tests.
 - No runtime or automated security regression test has been executed for this change yet.
+
+
+## Community interaction and realtime privacy hardening — 2026-11-17
+- Added a shared server-side post access check and applied it to like/unlike, likes list, comments list/create, save/unsave, and report routes.
+- The check permits the owner, permits `everyone`, requires friendship for `friends`, and denies unknown/restricted visibility values.
+- Replaced community route WebSocket `broadcastAll` calls for post updates/deletes/likes/unlikes/comments with targeted delivery to the acting user and post owner. This prevents private post IDs, comment text, and interaction events from being pushed to every connected account.
+- This is not a full realtime audience implementation: other authorized viewers may not receive live updates until a visibility-aware audience broadcaster is implemented.
+- No runtime tests or authorization regression suite has been run yet. Review WebSocket recipient semantics and client expectations before merge.
