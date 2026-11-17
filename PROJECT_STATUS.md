@@ -257,3 +257,13 @@ Changes committed to `development/no-replit-setup`; runtime validation is still 
 - On web: ensure existing AsyncStorage login/restore/logout behavior still works.
 - Test app reinstall/backup behavior and device lock conditions on a physical Android device.
 - Do not claim the entire phone or application is immune to spyware, malware, rooted-device compromise or OS-level interception. SecureStore protects local token storage at rest; transport still relies on HTTPS/WSS and app/device security.
+
+
+### GitHub Actions validation result for SecureStore migration (2026-11-17)
+
+- Latest run for head commit `246fec181adac2a68f84df388b50616de7b06149` completed successfully.
+- `pnpm install --frozen-lockfile`: passed.
+- Shared libraries TypeScript check: passed.
+- API TypeScript check: passed.
+- Mobile TypeScript check: passed.
+- This confirms dependency lock consistency and static type checks in GitHub's Linux runner. It does not replace native Android runtime tests, Expo prebuild/doctor, API integration tests, or security tests on a physical device.
