@@ -1,6 +1,6 @@
 /**
  * WebSocket client for Nexora real-time messaging.
- * Connects to /api/ws?token=<session-token> and broadcasts events to subscribers.
+ * Authenticates with the session token in the first WebSocket frame (never in the URL).
  * Auto-reconnects every 3 seconds on disconnect.
  */
 
@@ -27,32 +27,29 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<Listener>();
 let currentToken: string | null = null;
 
-function buildWsUrl(token: string): string {
+function buildWsUrl(): string {
   const configuredWsUrl = process.env.EXPO_PUBLIC_WS_URL?.trim();
-  if (configuredWsUrl) {
-    const url = new URL(configuredWsUrl);
-    url.searchParams.set("token", token);
-    return url.toString();
-  }
+  if (configuredWsUrl) return configuredWsUrl;
 
   // Temporary backwards compatibility for the old preview environment.
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    return `wss://${domain}/api/ws?token=${token}`;
-  }
+  if (domain) return `wss://${domain}/api/ws`;
+
   if (typeof window !== "undefined" && window.location) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/api/ws?token=${token}`;
+    return `${proto}//${window.location.host}/api/ws`;
   }
-  return `ws://localhost:8080/api/ws?token=${token}`;
+  return "ws://localhost:8080/api/ws";
 }
 
 function connect(token: string) {
   if (ws && ws.readyState <= 1) return;
 
-  ws = new WebSocket(buildWsUrl(token));
+  ws = new WebSocket(buildWsUrl());
 
   ws.onopen = () => {
+    // Send the bearer token in the first encrypted WebSocket frame, not the URL.
+    ws?.send(JSON.stringify({ type: "auth", token }));
     if (__DEV__) console.log("[WS] connected");
   };
 
