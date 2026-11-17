@@ -53,9 +53,24 @@ function connect(token: string) {
     if (__DEV__) console.log("[WS] connected");
   };
 
+  let authenticated = false;
+
   ws.onmessage = (e) => {
     try {
-      const event = JSON.parse(e.data as string) as WsEvent;
+      const message = JSON.parse(e.data as string) as {
+        type?: string;
+        payload?: unknown;
+      };
+
+      // Do not deliver application events until the server confirms this session.
+      if (message.type === "authenticated") {
+        authenticated = true;
+        if (__DEV__) console.log("[WS] authenticated");
+        return;
+      }
+      if (!authenticated || typeof message.type !== "string") return;
+
+      const event = message as WsEvent;
       for (const l of listeners) l(event);
     } catch {
       /* ignore parse errors */
@@ -63,6 +78,7 @@ function connect(token: string) {
   };
 
   ws.onclose = () => {
+    authenticated = false;
     ws = null;
     if (currentToken) {
       reconnectTimer = setTimeout(() => {
