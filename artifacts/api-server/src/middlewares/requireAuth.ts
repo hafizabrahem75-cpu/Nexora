@@ -4,7 +4,8 @@ import {
   usersTable,
   type PublicUser,
 } from "@workspace/db";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
+import { hashSessionToken } from "../lib/sessionToken";
 import { NextFunction, Request, Response } from "express";
 
 export interface AuthRequest extends Request {
@@ -28,6 +29,8 @@ export async function requireAuth(
   try {
     const [row] = await db
       .select({
+        id: sessionsTable.id,
+        storedToken: sessionsTable.token,
         userId: sessionsTable.userId,
         user: {
           id: usersTable.id,
@@ -49,7 +52,11 @@ export async function requireAuth(
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
       .where(
         and(
-          eq(sessionsTable.token, token),
+          or(
+            eq(sessionsTable.token, hashSessionToken(token)),
+            // Temporary compatibility for sessions created before token hashing.
+            eq(sessionsTable.token, token),
+          ),
           gt(sessionsTable.expiresAt, new Date()),
         ),
       )
@@ -60,6 +67,14 @@ export async function requireAuth(
         .status(401)
         .json({ error: "الجلسة منتهية الصلاحية — يرجى تسجيل الدخول مجدداً" });
       return;
+    }
+
+    // Upgrade a legacy raw session token to its digest after successful auth.
+    const tokenDigest = hashSessionToken(token);
+    if (row.storedToken !== tokenDigest) {
+      await db.update(sessionsTable)
+        .set({ token: tokenDigest })
+        .where(eq(sessionsTable.id, row.id));
     }
 
     if (row.user.suspendedAt) {
