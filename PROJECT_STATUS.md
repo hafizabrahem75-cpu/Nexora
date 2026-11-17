@@ -318,3 +318,29 @@ Source: https://github.com/expo/expo/blob/sdk-54/packages/expo/bundledNativeModu
 6. Review image access/cache policy before introducing private posts or private accounts.
 
 No production secrets, paid-service credentials, or API keys are required for this remediation phase. This is a code-review checkpoint; runtime/security tests are still required before merging.
+
+
+## Privacy enforcement implementation checkpoint — 2026-11-17
+
+### Code changes made on development branch
+- User profile endpoint now checks the target user's `profileVisibility`: `everyone` permits viewing, `friends` requires a friendship, and other values deny access (except self).
+- User profile-post endpoint applies the same visibility check.
+- Followers and following list endpoints now apply profile visibility using the same everyone/friends/deny policy.
+- Conversation creation and message sending now check the recipient's `messagingPrivacy`: `everyone` allows, `friends` requires an existing friendship, and `nobody` or unknown values deny.
+- Changes were made in `users.ts`, `follows.ts`, and `conversations.ts`.
+
+### Important limitations — do not call privacy complete
+- Search and username lookup still need a privacy policy review.
+- Follow creation itself does not yet implement private-account follow requests.
+- Community global/following feeds, post detail/comments/likes, saved posts, and image delivery need a consistent visibility/authorization audit.
+- Existing conversations may be blocked from sending after a recipient changes messaging privacy; product behavior for existing threads needs a deliberate decision.
+- Privacy enum values and mobile settings UI must be verified together before release.
+- Automated authorization tests and runtime tests have not yet been run for these changes.
+
+### Next security tasks
+1. Review all community endpoints and image serving for private-resource access and IDOR.
+2. Verify settings UI and allowed privacy enum values against server enforcement.
+3. Add automated cross-user authorization tests for profiles, posts, followers/following, and conversations.
+4. Fix password reset/email verification token hashing and atomic single-use consumption.
+5. Require re-authentication for sensitive account changes and revoke sessions after password change.
+6. Continue admin authorization and secrets-history remediation.
