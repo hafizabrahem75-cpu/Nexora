@@ -2,7 +2,7 @@
  * AuthContext — single source of truth for authentication in Nexora.
  *
  * Responsibilities:
- *  - Persist the session token on-device (AsyncStorage)
+ *  - Persist the session token on-device (secure storage migration pending)
  *  - Restore the session on app launch by calling GET /auth/me
  *  - Expose signUp / signIn / signOut / forgotPassword / verifyEmail actions
  *  - Expose the current PublicUser so any screen can read it
@@ -133,8 +133,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!cancelled) applySession(saved, data.user);
-      } catch {
-        await clearToken().catch(() => {});
+      } catch (err) {
+        // Only clear credentials when the server explicitly rejects the session.
+        // Network failures, timeouts and server errors must not sign users out.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          await clearToken().catch(() => {});
+        }
       } finally {
         clearTimeout(safetyTimer);
         if (!cancelled) setIsLoading(false);
