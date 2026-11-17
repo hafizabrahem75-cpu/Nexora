@@ -187,3 +187,13 @@ The following configuration-only changes have been committed to the development 
 - WebSocket authentication still places the session token in the URL query string. This is not fixed by the configurable URL work. Replace it with a safer authentication handshake and test that tokens are not written to logs.
 - Mobile session storage and server-side raw session-token storage remain separate high-priority security tasks described above.
 - No provider API keys, email passwords, storage credentials or production database secrets were added.
+
+
+### Security incident response added during Replit independence review (2026-11-17)
+
+- The tracked `.replit` file contained literal shared admin-secret values. Those values have been removed from the development branch file. Because the values existed in repository history, treat them as compromised and do not reuse them.
+- The mobile admin screen previously compiled `EXPO_PUBLIC_ADMIN_SECRET` into the client and sent it as `x-admin-secret`. This is not a safe authorization design because client-bundled secrets can be extracted.
+- Development branch replaces shared-secret admin authorization with a bearer-authenticated session and a server-side `users.isDeveloper` authorization check. The auth middleware now includes the server-controlled role flag in the authenticated user object.
+- Admin API calls from the mobile screen now use the signed-in session token; no admin secret is embedded in the app.
+- This is source-reviewed only. It still requires API/mobile typecheck, login/admin positive and negative authorization tests, and confirmation that only the intended owner account has `isDeveloper=true`.
+- Do not deploy or merge until those checks pass. The old `main` branch still has the prior shared-secret implementation until this pull request is reviewed and merged.
