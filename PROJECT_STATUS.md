@@ -344,3 +344,11 @@ No production secrets, paid-service credentials, or API keys are required for th
 4. Fix password reset/email verification token hashing and atomic single-use consumption.
 5. Require re-authentication for sensitive account changes and revoke sessions after password change.
 6. Continue admin authorization and secrets-history remediation.
+
+
+## Community image access hardening — 2026-11-17
+- Image delivery endpoint now requires an authenticated session.
+- Image lookup joins the linked post and owner account, then applies owner profile visibility: self always allowed; `everyone` allowed; `friends` requires a friendship; other/unknown visibility values denied.
+- Image responses use private/no-store caching and `X-Content-Type-Options: nosniff`.
+- This does not complete community privacy: feed queries, post detail, comments, likes, saves, reports, and follow/search behavior still require a systematic authorization review.
+- Runtime tests and mobile image loading regression tests have not yet been run. Public unauthenticated image embedding is no longer supported by this endpoint; verify intended UX before release.
