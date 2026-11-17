@@ -8,6 +8,22 @@ const router: IRouter = Router();
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
+async function canViewProfile(targetUserId: string, viewerUserId: string): Promise<boolean> {
+  if (targetUserId === viewerUserId) return true;
+  const [target] = await db.select({ visibility: usersTable.profileVisibility })
+    .from(usersTable).where(eq(usersTable.id, targetUserId)).limit(1);
+  if (!target) return false;
+  if (target.visibility === "everyone") return true;
+  if (target.visibility !== "friends") return false;
+  const [userId1, userId2] = targetUserId < viewerUserId
+    ? [targetUserId, viewerUserId] : [viewerUserId, targetUserId];
+  const [friendship] = await db.select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(and(eq(friendshipsTable.userId1, userId1), eq(friendshipsTable.userId2, userId2)))
+    .limit(1);
+  return !!friendship;
+}
+
 function publicUser(u: typeof usersTable.$inferSelect) {
   return {
     id: u.id,
@@ -128,6 +144,10 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
       res.status(404).json({ error: "المستخدم غير موجود" });
       return;
     }
+    if (!(await canViewProfile(userId, req.userId!))) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
 
     const [[postsRow], [friendsRow], [followersRow], [followingRow], isFollowingRow] =
       await Promise.all([
@@ -164,6 +184,10 @@ router.get("/profile/:userId", requireAuth, async (req: AuthRequest, res) => {
 router.get("/profile/:userId/posts", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    if (!(await canViewProfile(userId, req.userId!))) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
     const rows = await db
       .select({
         id:            communityPostsTable.id,
