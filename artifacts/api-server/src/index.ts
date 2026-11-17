@@ -24,10 +24,11 @@ if (Number.isNaN(port) || port <= 0) {
 
 const server = createServer(app);
 
-const wss = new WebSocketServer({ server, path: "/api/ws" });
+const wss = new WebSocketServer({ server, path: "/api/ws", maxPayload: 1024 });
 
 wss.on("connection", (ws) => {
   let authenticated = false;
+  let authInProgress = false;
 
   const authTimeout = setTimeout(() => {
     if (!authenticated) ws.close(4001, "unauthorized");
@@ -35,7 +36,7 @@ wss.on("connection", (ws) => {
 
   ws.on("message", async (raw) => {
     // The only client-to-server frame currently supported is the initial auth frame.
-    if (authenticated) return;
+    if (authenticated || authInProgress) return;
 
     let token: string | undefined;
     try {
@@ -53,6 +54,8 @@ wss.on("connection", (ws) => {
       ws.close(4000, "bad_request");
       return;
     }
+
+    authInProgress = true;
 
     try {
       const [row] = await db
