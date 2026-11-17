@@ -11,15 +11,19 @@ app.set("trust proxy", 1);
 const ALLOWED_ORIGINS: (string | RegExp)[] = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.expo\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/,
 ];
-if (process.env["REPLIT_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
-}
-if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
+
+// Production and staging origins are supplied as a comma-separated env var.
+const configuredOrigins = process.env["CORS_ALLOWED_ORIGINS"]
+  ?.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean) ?? [];
+ALLOWED_ORIGINS.push(...configuredOrigins);
+
+// Temporary compatibility while the previous preview environment is still used.
+for (const key of ["REPLIT_DEV_DOMAIN", "REPLIT_EXPO_DEV_DOMAIN"] as const) {
+  const domain = process.env[key];
+  if (domain) ALLOWED_ORIGINS.push(`https://${domain}`);
 }
 
 // ── CORS must come first so that ALL responses (including 429s from rate
