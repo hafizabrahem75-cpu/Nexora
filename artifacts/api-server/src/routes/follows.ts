@@ -1,4 +1,4 @@
-import { db, followsTable, usersTable } from "@workspace/db";
+import { db, followsTable, usersTable, friendshipsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -6,6 +6,24 @@ import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
+
+async function canViewFollowLists(targetUserId: string, viewerUserId: string): Promise<boolean> {
+  if (targetUserId === viewerUserId) return true;
+  const [target] = await db.select({ visibility: usersTable.profileVisibility })
+    .from(usersTable).where(eq(usersTable.id, targetUserId)).limit(1);
+  if (!target) return false;
+  if (target.visibility === "everyone") return true;
+  if (target.visibility !== "friends") return false;
+  const [userId1, userId2] = targetUserId < viewerUserId
+    ? [targetUserId, viewerUserId] : [viewerUserId, targetUserId];
+  const [friendship] = await db.select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(and(
+      eq(friendshipsTable.userId1, userId1),
+      eq(friendshipsTable.userId2, userId2),
+    )).limit(1);
+  return !!friendship;
+}
 
 const followLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -82,6 +100,10 @@ router.delete("/:userId", requireAuth, followLimiter, async (req: AuthRequest, r
 router.get("/:userId/followers", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    if (!(await canViewFollowLists(userId, req.userId!))) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
     const rows = await db
       .select({
         id:             usersTable.id,
@@ -106,6 +128,10 @@ router.get("/:userId/followers", requireAuth, async (req: AuthRequest, res) => {
 router.get("/:userId/following", requireAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params as { userId: string };
   try {
+    if (!(await canViewFollowLists(userId, req.userId!))) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
     const rows = await db
       .select({
         id:             usersTable.id,
