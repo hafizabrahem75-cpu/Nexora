@@ -28,6 +28,14 @@ const listeners = new Set<Listener>();
 let currentToken: string | null = null;
 
 function buildWsUrl(token: string): string {
+  const configuredWsUrl = process.env.EXPO_PUBLIC_WS_URL?.trim();
+  if (configuredWsUrl) {
+    const url = new URL(configuredWsUrl);
+    url.searchParams.set("token", token);
+    return url.toString();
+  }
+
+  // Temporary backwards compatibility for the old preview environment.
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (domain) {
     return `wss://${domain}/api/ws?token=${token}`;
@@ -36,7 +44,7 @@ function buildWsUrl(token: string): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}/api/ws?token=${token}`;
   }
-  return `ws://localhost/api/ws?token=${token}`;
+  return `ws://localhost:8080/api/ws?token=${token}`;
 }
 
 function connect(token: string) {
