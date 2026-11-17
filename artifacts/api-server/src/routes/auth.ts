@@ -6,6 +6,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import bcrypt from "bcryptjs";
+import { hashSessionToken } from "../lib/sessionToken";
 import { and, eq, gt } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
@@ -92,7 +93,7 @@ router.post("/register", async (req, res) => {
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
       userId: user.id,
-      token: sessionToken,
+      token: hashSessionToken(sessionToken),
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     });
 
@@ -165,7 +166,7 @@ router.post("/logout", requireAuth, async (req: AuthRequest, res) => {
   const token = authHeader.slice(7).trim();
 
   try {
-    await db.delete(sessionsTable).where(eq(sessionsTable.token, token));
+    await db.delete(sessionsTable).where(eq(sessionsTable.token, hashSessionToken(token)));
     res.json({ ok: true });
   } catch (err) {
     req.log.error(err, "logout failed");
