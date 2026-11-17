@@ -159,3 +159,31 @@ The reviewed tree contains generated build output, source maps, TypeScript build
 - Review diffs before merging to `main`.
 - Update this file only with verified outcomes, and record commit hashes for completed milestones.
 - Never commit secrets, production credentials, private keys, signing files or real user data.
+
+
+## 10. Work started on branch `development/no-replit-setup` (2026-11-17)
+
+The following configuration-only changes have been committed to the development branch; they have NOT yet been runtime-tested or merged into `main`:
+
+- Mobile dev script now runs the standard `expo start` command instead of injecting Replit-specific environment variables.
+- Mobile API client accepts `EXPO_PUBLIC_API_URL`; legacy `EXPO_PUBLIC_DOMAIN` remains as temporary fallback.
+- WebSocket client accepts `EXPO_PUBLIC_WS_URL`; legacy preview URL fallback remains temporarily.
+- API CORS accepts comma-separated `CORS_ALLOWED_ORIGINS`; localhost is allowed for development and old Replit variables remain only as a compatibility bridge.
+- Static Expo build script accepts `PUBLIC_BASE_URL` (or `EXPO_PUBLIC_WEB_URL`) before checking legacy Replit variables.
+- Removed the hardcoded `https://replit.com/` Expo Router plugin origin.
+- Added root `.gitignore` rules for environment files, build output, caches and signing/private-key files.
+- Added root `.env.example` with placeholders only. It contains no real credentials; `EXPO_PUBLIC_*` values are public client configuration and must never contain secrets.
+
+### Still pending in Replit independence phase
+
+- Inspect and decide whether to retire legacy `.replit`, `replit.nix`, `replit.md` and artifact metadata; do not delete them until all references are understood.
+- Review every remaining Replit-specific variable and script, including static build and workspace scripts.
+- Add a reproducible install/start/build guide for the intended Linux/Android development setup.
+- Run pnpm install, DB migration, API typecheck/build, mobile typecheck and Expo export in a real development environment.
+- Configure and test a real API and WebSocket deployment origin before building a release APK.
+
+### Important security follow-up
+
+- WebSocket authentication still places the session token in the URL query string. This is not fixed by the configurable URL work. Replace it with a safer authentication handshake and test that tokens are not written to logs.
+- Mobile session storage and server-side raw session-token storage remain separate high-priority security tasks described above.
+- No provider API keys, email passwords, storage credentials or production database secrets were added.
