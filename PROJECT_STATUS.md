@@ -221,3 +221,17 @@ Changes committed to the development branch; not yet runtime-tested:
 - Verify malformed/oversized WebSocket frames are rejected and unauthenticated sockets cannot receive events.
 - Review race handling, connection timeouts, reconnect behavior and logout while WebSocket is connected.
 - This source-only review does not constitute a security audit or prove end-to-end encryption of private messages.
+
+
+### Mobile session restore and WebSocket client follow-up (2026-11-17)
+
+- Fixed AuthContext startup behavior: temporary network failures, timeouts, and API 5xx errors no longer delete the locally saved session token. The app clears the saved token only when the server explicitly rejects the session with 401/403.
+- WebSocket client now waits for the server's `authenticated` acknowledgement before forwarding application events to app listeners.
+- These changes are source-reviewed only and still require device tests for offline startup, expired sessions, reconnects, and message delivery.
+
+### SecureStore dependency compatibility
+
+- The mobile app currently uses Expo SDK 54, while `expo-secure-store` is declared as `^56.0.4`.
+- Expo's SDK 54 versioned documentation recommends `~15.0.8` for SecureStore. Do not import/use SecureStore until the dependency and lockfile are aligned and installation/typecheck passes.
+- Next environment task: update the package to the SDK 54-compatible version using `pnpm expo install expo-secure-store` (or equivalent pinned version), regenerate `pnpm-lock.yaml`, then add the SecureStore config plugin and implement a safe one-time migration from AsyncStorage.
+- Keep web preview storage behavior separate; SecureStore is for native Android/iOS. Do not silently fall back to plaintext AsyncStorage on native if SecureStore fails.
