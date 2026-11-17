@@ -155,8 +155,20 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   }
 
   try {
-    if (!(await areFriends(userId, friendId))) {
-      res.status(403).json({ error: "يجب أن تكونا أصدقاء لبدء محادثة" });
+    const [recipient] = await db
+      .select({ id: usersTable.id, messagingPrivacy: usersTable.messagingPrivacy })
+      .from(usersTable)
+      .where(eq(usersTable.id, friendId))
+      .limit(1);
+    if (!recipient) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+    const friends = await areFriends(userId, friendId);
+    if (recipient.messagingPrivacy === "nobody" ||
+        (recipient.messagingPrivacy === "friends" && !friends) ||
+        (!["everyone", "friends", "nobody"].includes(recipient.messagingPrivacy))) {
+      res.status(403).json({ error: "إعدادات خصوصية هذا المستخدم لا تسمح ببدء المحادثة" });
       return;
     }
 
@@ -282,6 +294,22 @@ router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     if (!participantIds.includes(userId)) {
       res.status(403).json({ error: "غير مصرح" });
       return;
+    }
+    const recipientIdsForPolicy = participantIds.filter((id) => id !== userId);
+    for (const recipientId of recipientIdsForPolicy) {
+      const [recipient] = await db
+        .select({ messagingPrivacy: usersTable.messagingPrivacy })
+        .from(usersTable)
+        .where(eq(usersTable.id, recipientId))
+        .limit(1);
+      const friends = await areFriends(userId, recipientId);
+      if (!recipient ||
+          recipient.messagingPrivacy === "nobody" ||
+          (recipient.messagingPrivacy === "friends" && !friends) ||
+          (!["everyone", "friends", "nobody"].includes(recipient.messagingPrivacy))) {
+        res.status(403).json({ error: "إعدادات خصوصية المستلم لا تسمح بإرسال الرسائل" });
+        return;
+      }
     }
 
     const [message] = await db
