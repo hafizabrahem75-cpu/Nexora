@@ -46,8 +46,4 @@ channel = "stable-25_05"
 
 [workflows]
 
-[userenv]
-
-[userenv.shared]
-DEVELOPER_SECRET = "nexora-dev-2026"
-EXPO_PUBLIC_ADMIN_SECRET = "nexora-dev-2026"
+# Secrets must be configured outside source control; do not store them here.
