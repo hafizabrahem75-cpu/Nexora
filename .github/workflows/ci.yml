@@ -1,0 +1,43 @@
+name: Nexora checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, development/no-replit-setup]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Install and typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck shared libraries
+        run: pnpm run typecheck:libs
+
+      - name: Typecheck API
+        run: pnpm --filter @workspace/api-server run typecheck
+
+      - name: Typecheck mobile
+        run: pnpm --filter @workspace/mobile run typecheck
