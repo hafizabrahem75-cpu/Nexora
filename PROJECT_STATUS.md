@@ -297,3 +297,24 @@ Source: https://github.com/expo/expo/blob/sdk-54/packages/expo/bundledNativeModu
 - Temporary verification bypass is allowed only when BOTH conditions hold: `NODE_ENV` is not `production` and `ALLOW_UNVERIFIED_EMAIL=true`.
 - Production ignores this bypass even if the environment variable is accidentally set.
 - Real email delivery and verification-token lifecycle still need end-to-end implementation/testing before launch. For developer testing, set the explicit bypass only in a non-production environment; do not set it in production.
+
+
+## Security review update — 2026-11-17
+
+### Newly confirmed findings (server-side code review)
+- Profile visibility and messaging privacy fields exist, but the reviewed profile and conversation route handlers do not consistently enforce those preferences.
+- Password reset tokens are stored and queried as raw values; they should be stored as one-way digests and consumed atomically.
+- Account deletion currently has no current-password re-authentication.
+- Password change updates the password hash but does not revoke the user's existing sessions.
+- User profile posts and follower/following list endpoints expose data without applying the target user's visibility preference.
+- Image retrieval is intentionally unauthenticated for linked public-post images; this must be reconciled with private-account/post visibility before private content is supported.
+
+### Required remediation order
+1. Define exact privacy semantics for `everyone`, `friends`, and `nobody`; enforce them consistently on profile, posts, followers/following, search, and messaging endpoints.
+2. Hash password-reset and email-verification tokens; enforce one-time use and atomic consumption.
+3. Require password re-authentication for account deletion and other sensitive account actions.
+4. Revoke other active sessions after password changes; provide a session/device management path.
+5. Add authorization regression tests for cross-account IDOR attempts and private-resource access.
+6. Review image access/cache policy before introducing private posts or private accounts.
+
+No production secrets, paid-service credentials, or API keys are required for this remediation phase. This is a code-review checkpoint; runtime/security tests are still required before merging.
