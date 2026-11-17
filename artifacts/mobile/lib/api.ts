@@ -2,17 +2,17 @@
  * Lightweight API client for Nexora mobile.
  *
  * API URL precedence:
- * 1. EXPO_PUBLIC_API_URL (recommended for standalone environments)
- * 2. EXPO_PUBLIC_DOMAIN (temporary backwards compatibility)
- * 3. Relative /api path for same-origin web previews
+ * 1. EXPO_PUBLIC_API_URL for standalone deployments
+ * 2. EXPO_PUBLIC_DOMAIN for temporary preview compatibility
+ * 3. Relative /api for same-origin web preview
  */
-
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 const legacyDomain = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+
 export const API_BASE = configuredApiUrl
-  ? configuredApiUrl.replace(/\\/+$/, "")
+  ? configuredApiUrl.replace(/\/+$/, "")
   : legacyDomain
-    ? `https://${legacyDomain.replace(/^https?:\\/\\//, "")}/api`
+    ? `https://${legacyDomain.replace(/^https?:\/\//, "")}/api`
     : "/api";
 
 export class ApiError extends Error {
