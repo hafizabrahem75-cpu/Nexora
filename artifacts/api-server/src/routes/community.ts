@@ -8,6 +8,32 @@ import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
+// Filter feed rows by the author's profile visibility before returning any
+// post content or image identifiers to the requesting account.
+async function filterVisiblePosts<T extends { author: { id: string; profileVisibility: string } }>(
+  rows: T[],
+  viewerId: string,
+): Promise<T[]> {
+  const visible: T[] = [];
+  for (const row of rows) {
+    if (row.author.id === viewerId || row.author.profileVisibility === "everyone") {
+      visible.push(row);
+      continue;
+    }
+    if (row.author.profileVisibility !== "friends") continue;
+    const [userId1, userId2] = row.author.id < viewerId
+      ? [row.author.id, viewerId] : [viewerId, row.author.id];
+    const [friendship] = await db.select({ id: friendshipsTable.id })
+      .from(friendshipsTable)
+      .where(and(
+        eq(friendshipsTable.userId1, userId1),
+        eq(friendshipsTable.userId2, userId2),
+      )).limit(1);
+    if (friendship) visible.push(row);
+  }
+  return visible;
+}
+
 const byUser = (req: Express.Request) =>
   (req as AuthRequest).userId ?? "anonymous";
 
@@ -304,6 +330,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
           username:       usersTable.username,
           avatarColor:    usersTable.avatarColor,
           avatarImageUri: usersTable.avatarImageUri,
+          profileVisibility: usersTable.profileVisibility,
         },
       })
       .from(communityPostsTable)
@@ -311,7 +338,8 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = await filterVisiblePosts(rows, req.userId!);
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -329,7 +357,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
@@ -374,7 +402,8 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = await filterVisiblePosts(rows, userId);
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -387,7 +416,7 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
