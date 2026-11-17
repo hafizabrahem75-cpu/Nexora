@@ -197,3 +197,27 @@ The following configuration-only changes have been committed to the development 
 - Admin API calls from the mobile screen now use the signed-in session token; no admin secret is embedded in the app.
 - This is source-reviewed only. It still requires API/mobile typecheck, login/admin positive and negative authorization tests, and confirmation that only the intended owner account has `isDeveloper=true`.
 - Do not deploy or merge until those checks pass. The old `main` branch still has the prior shared-secret implementation until this pull request is reviewed and merged.
+
+
+### Session-token hardening and WebSocket authentication (2026-11-17)
+
+Changes committed to the development branch; not yet runtime-tested:
+
+- Added `hashSessionToken` using SHA-256 for high-entropy session tokens.
+- Registration and login now persist only the token digest in the existing sessions.token column; the raw token is returned to the client once.
+- REST authentication checks the digest and temporarily accepts legacy raw-token rows; a successful legacy authentication upgrades that row to a digest.
+- Logout deletes the digest rather than searching for the raw token.
+- WebSocket authentication now sends the session token in the first encrypted WebSocket frame instead of the URL query string. This avoids placing bearer tokens in URL paths that may be logged by proxies.
+- The WebSocket server limits payload size to 1 KB and allows only one initial authentication attempt before registering the connection.
+- Existing WebSocket and REST sessions are intended to remain compatible during the transition through legacy raw-token lookup and in-place digest upgrade.
+
+### Required validation before merge
+
+- Run API TypeScript check/build and mobile TypeScript check.
+- Verify registration/login return a usable raw token while database rows contain only SHA-256 digests.
+- Verify legacy raw-token sessions authenticate once and are upgraded.
+- Verify logout revokes the hashed session.
+- Verify WebSocket authentication succeeds only after the first auth frame; no token appears in the URL, proxy access logs or application logs.
+- Verify malformed/oversized WebSocket frames are rejected and unauthenticated sockets cannot receive events.
+- Review race handling, connection timeouts, reconnect behavior and logout while WebSocket is connected.
+- This source-only review does not constitute a security audit or prove end-to-end encryption of private messages.
