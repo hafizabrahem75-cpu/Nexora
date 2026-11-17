@@ -2,7 +2,7 @@
  * AuthContext — single source of truth for authentication in Nexora.
  *
  * Responsibilities:
- *  - Persist the session token on-device (secure storage migration pending)
+ *  - Persist the session token on native devices using SecureStore
  *  - Restore the session on app launch by calling GET /auth/me
  *  - Expose signUp / signIn / signOut / forgotPassword / verifyEmail actions
  *  - Expose the current PublicUser so any screen can read it
