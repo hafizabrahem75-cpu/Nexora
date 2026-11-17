@@ -33,6 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check Expo SDK package compatibility
+        id: expo-compatibility
+        continue-on-error: true
+        run: pnpm --filter @workspace/mobile exec expo install --check
+
       - name: Typecheck shared libraries
         run: pnpm run typecheck:libs
 
