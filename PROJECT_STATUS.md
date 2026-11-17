@@ -288,3 +288,12 @@ Source: https://github.com/expo/expo/blob/sdk-54/packages/expo/bundledNativeModu
 - Registration currently writes `emailVerified: true` directly. Email verification is not actually enforced for newly registered accounts. Keep this developer bypass only during controlled testing; remove it and require real verification before public release.
 - Admin routes are protected by server-side `requireAuth` plus the account's `isDeveloper` database flag; no shared admin secret is required in the current development branch. Still needs negative authorization tests and confirmation that only the owner's account is granted this flag.
 - WebSocket client now waits for server acknowledgement before dispatching application events. Needs integration tests for bad/expired tokens, reconnect, logout, and simultaneous sessions.
+
+
+### Production email-verification safety gate (2026-11-17)
+
+- Removed the unconditional `emailVerified: true` assignment during account registration.
+- New accounts are now unverified by default.
+- Temporary verification bypass is allowed only when BOTH conditions hold: `NODE_ENV` is not `production` and `ALLOW_UNVERIFIED_EMAIL=true`.
+- Production ignores this bypass even if the environment variable is accidentally set.
+- Real email delivery and verification-token lifecycle still need end-to-end implementation/testing before launch. For developer testing, set the explicit bypass only in a non-production environment; do not set it in production.
