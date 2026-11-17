@@ -83,7 +83,12 @@ router.post("/register", async (req, res) => {
         passwordHash,
         name,
         username: normalizedUsername,
-        emailVerified: true,
+        // Email verification bypass is allowed only when explicitly enabled
+        // in a non-production environment for developer testing.
+        emailVerified: !(
+          process.env.NODE_ENV !== "production" &&
+          process.env.ALLOW_UNVERIFIED_EMAIL === "true"
+        ),
         ...(avatarColor ? { avatarColor } : {}),
       })
       .returning();
