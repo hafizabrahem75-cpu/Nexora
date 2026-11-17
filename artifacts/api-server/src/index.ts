@@ -1,11 +1,12 @@
 import { db, sessionsTable } from "@workspace/db";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startSessionCleanup } from "./lib/sessionCleanup";
 import { wsManager } from "./lib/wsManager";
+import { hashSessionToken } from "./lib/sessionToken";
 
 const rawPort = process.env["PORT"];
 
@@ -43,16 +44,30 @@ wss.on("connection", async (ws, req) => {
 
   try {
     const [row] = await db
-      .select({ userId: sessionsTable.userId })
+      .select({ id: sessionsTable.id, userId: sessionsTable.userId, storedToken: sessionsTable.token })
       .from(sessionsTable)
       .where(
-        and(eq(sessionsTable.token, token), gt(sessionsTable.expiresAt, new Date())),
+        and(
+          or(
+            eq(sessionsTable.token, hashSessionToken(token)),
+            // Temporary compatibility for existing sessions; upgrade after auth.
+            eq(sessionsTable.token, token),
+          ),
+          gt(sessionsTable.expiresAt, new Date()),
+        ),
       )
       .limit(1);
 
     if (!row) {
       ws.close(4001, "unauthorized");
       return;
+    }
+
+    const tokenDigest = hashSessionToken(token);
+    if (row.storedToken !== tokenDigest) {
+      await db.update(sessionsTable)
+        .set({ token: tokenDigest })
+        .where(eq(sessionsTable.id, row.id));
     }
 
     const { userId } = row;
