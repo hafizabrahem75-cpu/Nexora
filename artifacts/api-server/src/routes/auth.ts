@@ -83,17 +83,32 @@ router.post("/register", async (req, res) => {
         passwordHash,
         name,
         username: normalizedUsername,
-        // Email verification bypass is allowed only when explicitly enabled
-        // in a non-production environment for developer testing.
-        emailVerified: !(
+        // Never mark an account verified during production registration.
+        // A bypass is available only for explicit non-production developer testing.
+        emailVerified:
           process.env.NODE_ENV !== "production" &&
-          process.env.ALLOW_UNVERIFIED_EMAIL === "true"
-        ),
+          process.env.ALLOW_UNVERIFIED_EMAIL === "true",
         ...(avatarColor ? { avatarColor } : {}),
       })
       .returning();
 
     if (!user) throw new Error("insert returned nothing");
+
+    if (!user.emailVerified) {
+      const verificationToken = makeToken();
+      await db.insert(emailVerificationTokensTable).values({
+        userId: user.id,
+        token: verificationToken,
+        expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
+      });
+      await sendVerificationEmail(user.email, verificationToken);
+      res.status(201).json({
+        emailVerificationRequired: true,
+        message: "يرجى التحقق من بريدك الإلكتروني قبل تسجيل الدخول",
+        user: stripPassword(user),
+      });
+      return;
+    }
 
     const sessionToken = makeToken();
     await db.insert(sessionsTable).values({
