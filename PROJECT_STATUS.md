@@ -1,0 +1,161 @@
+# Nexora — Project Status & Roadmap
+
+> Living handoff document. Update this file after each verified development milestone.
+> Last reviewed: 2026-11-17
+> Repository: https://github.com/hafizabrahem75-cpu/Nexora
+> Branch: main
+> Reviewed source commit: f6847213b813e61f2b9a4996dd6c993403c3ad17
+> Commit message: Community V4 - Image Support Phase 1
+> Important: This review inspects committed source and repository structure. It does NOT prove runtime behavior, production security, or successful device/build tests.
+
+## 1. Project architecture observed
+
+- Mobile app: Expo 54 / React Native 0.81 / TypeScript under `artifacts/mobile`.
+- API: Express 5 / TypeScript under `artifacts/api-server`.
+- Database: PostgreSQL with Drizzle ORM under `lib/db`.
+- Real-time layer: WebSocket manager in `artifacts/api-server/src/lib/wsManager.ts`.
+- Workspace: pnpm monorepo with root workspace configuration.
+- Mobile routes observed: login, signup, email verification, forgot password, home, profile, community, search, friends, followers/following, conversations/chat, goals, tasks, notes, notifications, settings, admin, Nexora AI and video import.
+- API route modules observed: auth, users, friends, follows, community, conversations, goals, tasks, notes, notifications, support, admin and health.
+
+## 2. Implemented foundations found in source
+
+### Accounts and profiles
+- Registration/login/logout/current-user flows exist.
+- Password hashing uses bcrypt in the authentication route.
+- Username and profile-related fields exist.
+- Email verification and password-reset token tables and route/UI paths exist.
+- Session records and authentication middleware exist.
+
+### Social graph
+- Friend request and friendship schema/routes exist.
+- Follow schema/routes exist.
+- User search and profile routes exist.
+- Followers/following screens exist in the mobile app.
+
+### Community
+- Post, comment and like schema/routes exist.
+- Community feed and following feed functionality was previously implemented.
+- Save-post and report-post tables/routes exist.
+- Likes list endpoint/UI sheet exists.
+- Image upload support exists through a post_images table and community image endpoints.
+- Image upload implementation was reported in the Phase 1 checkpoint to validate file signatures/types, enforce a 5 MB decoded-size limit, apply per-user rate limiting, and link uploaded images to posts. Runtime verification is still required.
+
+### Messaging and notifications
+- One-to-one conversations, participants and messages have database schemas and API routes.
+- WebSocket manager exists for real-time events.
+- Notifications schema, routes and mobile context/screen exist.
+
+### Productivity
+- Goals, tasks and notes have database schemas, API routes and mobile screens.
+- Reminder picker and notification utilities exist.
+- App-lock context and lock-screen component exist.
+
+### Administration and support
+- Admin API and mobile screen exist.
+- Support submission schema, route and screen integration exist.
+
+## 3. Security and production blockers observed or requiring immediate verification
+
+These findings are based on inspected source at the reviewed commit, not a penetration test.
+
+1. Session token storage: the session implementation was observed storing a raw token value in the database. Recommended remediation: generate high-entropy tokens, store only a cryptographic hash, compare hashes on requests, rotate/revoke sessions safely, and migrate existing sessions.
+2. Email verification: registration currently assigns `emailVerified: true` rather than requiring successful verification. Email verification must be enforced before production account activation.
+3. Email delivery: `artifacts/api-server/src/lib/email.ts` is a development/logging implementation, not a verified production email provider integration.
+4. Profile and messaging privacy: privacy preference fields exist, but inspected user/conversation route paths did not demonstrate comprehensive enforcement. Add centralized authorization checks and negative tests for private profiles and messaging restrictions.
+5. Account deletion: inspected delete-account route did not require current-password reauthentication. Add reauthentication and consider a confirmation/retention policy.
+6. Admin access: `requireAdmin.ts` relies on a shared `DEVELOPER_SECRET` header. Replace with an owner-only admin identity/role, strong reauthentication, least privilege, audit logs, rate limits and secret rotation. Never embed admin secrets in the mobile app.
+7. Reset and verification tokens: verify hashing at rest, expiry, one-time use, attempt limits, invalidation and non-enumerating responses.
+8. Mobile token storage: verify whether the app uses platform secure storage for authentication tokens; do not assume AsyncStorage is suitable for secrets.
+9. Authorization: systematically test ownership checks for posts, images, messages, goals, tasks, notes, reports and admin endpoints.
+10. Upload safety: validate actual file bytes, size, ownership, storage isolation, access controls and image processing. Do not trust client-provided MIME types or filenames.
+11. Operational security: production HTTPS, secure headers, strict CORS origins, rate limiting, structured redacted logs, secret management, backups and dependency updates remain to be verified.
+
+## 4. Functionality to complete or verify
+
+### Community
+- Multi-image posts and video upload/playback.
+- Hashtags, mentions, post search and discovery/trending.
+- Cursor pagination for feeds and engagement lists.
+- Moderation queue and admin report review.
+- Block/mute controls and visibility enforcement.
+- Verify comment editing/deletion and complete moderation behavior.
+
+### Messaging
+- Read receipts and typing indicators.
+- Group conversations.
+- Message edit/delete and search.
+- Media/file attachments.
+- Push notifications and robust reconnect/offline behavior.
+- Verify WebSocket authentication, authorization and multi-instance scaling.
+
+### Productivity
+- Verify subtasks, recurring tasks, recurring goals, calendar views and collaboration.
+- Improve notes formatting, organization, search and sharing.
+- Verify reminder delivery when app is backgrounded or terminated.
+
+### AI
+- Replace mock/template behavior with a real server-side AI integration.
+- Implement goal analysis and actionable plans.
+- Implement actual video content analysis/transcription and extraction of goals/tasks.
+- Keep provider API keys on the server; add quotas, abuse controls, privacy disclosures and cost limits.
+- Verify in-chat assistant and smart-reply behavior is not mock-only.
+
+### Notifications
+- Configure real push delivery (Android and iOS as applicable).
+- Add notification preferences, deep links, delivery/retry handling and device-token lifecycle.
+
+### Design and accessibility
+- Review every screen for visual consistency, Arabic-first RTL correctness, responsive layouts, loading/empty/error states and accessibility.
+- User's target is a polished premium interface; code presence alone does not establish design completion.
+
+## 5. Replit independence / deployment work
+
+Repository still contains Replit-specific artifacts/configuration such as `.replit`, `replit.nix`, `replit.md`, and artifact metadata. The mobile build script and API configuration must be inspected and refactored to use explicit environment configuration rather than Replit-only host assumptions.
+
+Required work:
+- Define separate development, staging and production environment variables.
+- Set a configurable API base URL and WebSocket URL; remove hardcoded Replit assumptions.
+- Choose a hosting provider for the API and managed PostgreSQL, with a free-tier/cost review before adoption.
+- Choose object storage for user uploads.
+- Configure migrations, backups, health checks, logs and monitoring.
+- Configure Expo/EAS or another supported Android build path and signing credentials.
+- Test a release APK on a physical Android device against the production-like API.
+- GitHub stores source and history; GitHub alone does not run the API/database or build/test an APK.
+
+## 6. Repository hygiene
+
+The reviewed tree contains generated build output, source maps, TypeScript build metadata and a zip archive. Review what should be tracked; normally keep source/config/lockfiles and exclude reproducible build output, temporary artifacts, local secrets and large generated archives where appropriate. Before deleting anything, verify whether deployment or release workflows depend on it.
+
+## 7. Recommended order of work
+
+1. Create a clean reproducible local development workflow independent of Replit, without changing app behavior.
+2. Add automated tests around authentication, authorization, privacy and core API behavior.
+3. Harden authentication/session lifecycle and secure mobile token storage.
+4. Enforce email verification and implement production email delivery.
+5. Enforce profile, messaging and resource ownership/privacy rules; require reauthentication for sensitive actions.
+6. Replace shared-secret admin access with owner-only role-based access and audit logging.
+7. Complete community media, moderation, pagination and discovery.
+8. Complete messaging features and push notifications.
+9. Complete goals/tasks/notes and reliable reminders.
+10. Implement real AI workflows with server-side secrets and cost controls.
+11. Polish all mobile screens and RTL behavior.
+12. Deploy backend/database/storage, run security and functional tests, then build/sign/release the APK.
+
+## 8. Verification status and limits
+
+- Confirmed from repository: branch `main` points to commit `f6847213b813e61f2b9a4996dd6c993403c3ad17`.
+- Confirmed from source tree: the app, API, DB schema, route modules and screens listed above exist.
+- Not verified by this static review: successful clean install/build, database migration on a fresh database, live API behavior, device UX, push delivery, production hosting, penetration test, or release APK.
+- Historical audit: `AUDIT.md` contains an earlier review dated 2026-06-17 and must be treated as historical context, not current test evidence.
+- Do not assign a single completion percentage until a repeatable test matrix has been run.
+
+## 9. Working rules
+
+- GitHub `main` is the canonical source of truth.
+- Make one scoped change at a time; use a feature branch for risky work.
+- Inspect current code before editing; do not assume old audit findings are still current.
+- Add tests with each security-sensitive change.
+- Review diffs before merging to `main`.
+- Update this file only with verified outcomes, and record commit hashes for completed milestones.
+- Never commit secrets, production credentials, private keys, signing files or real user data.
