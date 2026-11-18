@@ -368,3 +368,14 @@ No production secrets, paid-service credentials, or API keys are required for th
 - Replaced community route WebSocket `broadcastAll` calls for post updates/deletes/likes/unlikes/comments with targeted delivery to the acting user and post owner. This prevents private post IDs, comment text, and interaction events from being pushed to every connected account.
 - This is not a full realtime audience implementation: other authorized viewers may not receive live updates until a visibility-aware audience broadcaster is implemented.
 - No runtime tests or authorization regression suite has been run yet. Review WebSocket recipient semantics and client expectations before merge.
+
+
+## Account recovery and sensitive-action hardening — 2026-11-18
+- New password-reset tokens are stored as SHA-256 digests; raw tokens are sent only to the email delivery function and are not persisted in the token table.
+- New email-verification tokens are stored as SHA-256 digests.
+- Password-reset tokens are atomically marked used with a conditional update before password replacement; concurrent reuse is rejected.
+- Email-verification tokens are consumed with conditional delete-and-return before marking the account verified, preventing normal concurrent replay.
+- Password change revokes all other sessions while retaining the current authenticated session.
+- Account deletion now requires the current password.
+- Compatibility note: outstanding tokens created before this digest change will no longer validate. This should be acceptable before launch, but must be communicated if there are active test accounts.
+- Follow-up required: wrap token consumption + password update + session revocation in a database transaction; add rate limits to login/forgot/reset/verify endpoints; add password-change notification; add session/device management and re-authentication for email changes; run concurrency and end-to-end tests. No runtime tests have been executed for this change.
