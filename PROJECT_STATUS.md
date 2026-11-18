@@ -409,3 +409,35 @@ No production secrets, paid-service credentials, or API keys are required for th
 
 ## Product vision and roadmap review — deferred gate
 After security remediation and test gates, perform a formal comparison against the original Nexora vision and blueprint before adding more features. Reconcile each planned capability as implemented / partial / missing / deferred, including social community, messaging, friends/follows, goals/tasks/notes, real AI assistant, video-to-goals import, notifications/push, search/discovery, media, translation, recommendations/marketplace, support/admin, privacy/security, and future embedded browser. Add missing approved items to the roadmap, preserve the Arabic-first premium experience, and keep paid AI/email/service credentials deferred until the core product is stable and a low-cost/free option is chosen.
+
+
+## Security hardening batch — 2026-11-18
+
+### Mobile app lock
+- Replaced the fixed public PIN salt with a per-install random 128-bit salt and a versioned stored hash format.
+- Added persistent failed-PIN tracking and exponential cooldown starting after five failures, capped at 15 minutes.
+- Existing legacy PIN hashes are migrated to the new salted format after the user successfully enters the old PIN.
+- Changing an existing PIN now requires the current PIN first.
+- Disabling app lock now requires device authentication through the platform authenticator.
+- SecureStore write failures now surface instead of being silently ignored during PIN setup/migration.
+- Important limitation: SHA-256 is still a fast hash, not a dedicated password KDF such as PBKDF2/Argon2/scrypt. The random salt and UI throttling improve the situation but do not provide offline brute-force resistance if a rooted/compromised device exposes the stored hash. A native KDF or device-backed credential design remains a release-hardening task.
+
+### Admin API
+- Added a dedicated admin rate limit (20 requests / 15 minutes per IP) in addition to the general API limiter.
+- Removed legacy Replit preview domains from automatic CORS allowlisting. Only localhost and explicitly configured `CORS_ALLOWED_ORIGINS` remain.
+- Admin user/support pagination now rejects invalid, negative, fractional, unsafe, or over-200 limits.
+- Support type filter now accepts only report/help/feature/feedback.
+- Admin suspend/unsuspend/delete endpoints refuse to target the configured owner account.
+
+### Authentication atomicity
+- Password-reset token consumption, password replacement, and session revocation now run in one database transaction.
+- Email-verification token consumption and account verification now run in one database transaction.
+- Password change and revocation of other sessions now run in one database transaction.
+
+### Still required before release
+- Run workspace typecheck/build and API/mobile checks. These GitHub edits have not yet been executed in a runtime.
+- Add automated tests for PIN cooldown, legacy migration, PIN change/disable confirmation, admin owner protection, pagination validation, concurrent reset/verify replay, and session revocation.
+- Replace SHA-256 PIN derivation with a vetted slow KDF / platform-backed design before production.
+- Add admin re-authentication and immutable audit records for destructive actions.
+- Confirm production CORS origins and reverse-proxy trust settings.
+- Do not merge or deploy until tests pass and email delivery is configured for production.
