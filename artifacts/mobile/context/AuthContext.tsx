@@ -62,7 +62,7 @@ interface AuthActions {
     messagingPrivacy?: string;
   }) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  deleteAccount: () => Promise<void>;
+  deleteAccount: (currentPassword: string) => Promise<void>;
 }
 
 export type AuthContextValue = AuthState & AuthActions;
@@ -303,10 +303,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [token],
   );
 
-  const deleteAccount = useCallback(async () => {
+  const deleteAccount = useCallback(async (currentPassword: string) => {
     if (!token) return;
     await apiFetch("/auth/account", {
       method: "DELETE",
+      body: JSON.stringify({ currentPassword }),
       token,
     });
     await clearToken().catch(() => {});
