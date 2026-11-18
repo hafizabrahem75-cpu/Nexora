@@ -90,6 +90,7 @@ export default function SettingsScreen() {
 
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   const [privacyModal, setPrivacyModal] = useState(false);
@@ -161,12 +162,17 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()) return;
+    if (deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase() || !deletePassword) return;
     setDeleting(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePassword);
+      setDeleteModal(false);
+      setDeleteConfirm("");
+      setDeletePassword("");
       router.replace("/");
-    } catch { /* ignore */ } finally { setDeleting(false); }
+    } catch (err: any) {
+      Alert.alert(t.common.error, err?.message ?? t.common.error);
+    } finally { setDeleting(false); }
   };
 
   const openSupport = (type: SupportType) => {
@@ -583,6 +589,7 @@ export default function SettingsScreen() {
             <Text style={styles.sheetTitle}>{t.settings.deleteTitle}</Text>
             <Text style={[styles.deleteWarning, { color: colors.textSecondary }]}>{t.settings.deleteWarning}</Text>
             <Text style={styles.deleteHint}>{t.settings.deleteHint}</Text>
+            <TextInput style={styles.input} placeholder="كلمة المرور الحالية" placeholderTextColor={colors.placeholder} value={deletePassword} onChangeText={setDeletePassword} secureTextEntry textAlign="right" />
             <TextInput style={[styles.input, { borderColor: "#FF453A44" }]} placeholder={t.settings.deleteConfirmWord} placeholderTextColor={colors.placeholder} value={deleteConfirm} onChangeText={setDeleteConfirm} textAlign="right" />
             <View style={styles.modalBtns}>
               <Pressable style={[styles.modalBtn, styles.cancelModalBtn]} onPress={() => setDeleteModal(false)}>
@@ -591,7 +598,7 @@ export default function SettingsScreen() {
               <Pressable
                 style={[styles.modalBtn, { backgroundColor: deleteConfirm.trim().toLowerCase() === t.settings.deleteConfirmWord.toLowerCase() ? "#FF453A" : "#2C1515" }]}
                 onPress={handleDeleteAccount}
-                disabled={deleting || deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()}
+                disabled={deleting || !deletePassword || deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()}
               >
                 {deleting ? <ActivityIndicator size="small" color="#FFF" /> : (
                   <Text style={[styles.confirmBtnText, deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase() && { color: "#FF453A44" }]}>{t.common.delete}</Text>
