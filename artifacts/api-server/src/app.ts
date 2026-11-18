@@ -20,12 +20,6 @@ const configuredOrigins = process.env["CORS_ALLOWED_ORIGINS"]
   .filter(Boolean) ?? [];
 ALLOWED_ORIGINS.push(...configuredOrigins);
 
-// Temporary compatibility while the previous preview environment is still used.
-for (const key of ["REPLIT_DEV_DOMAIN", "REPLIT_EXPO_DEV_DOMAIN"] as const) {
-  const domain = process.env[key];
-  if (domain) ALLOWED_ORIGINS.push(`https://${domain}`);
-}
-
 // ── CORS must come first so that ALL responses (including 429s from rate
 // limiters) carry the correct Access-Control-Allow-Origin header.
 // Without this, the browser treats rate-limit responses as network errors
@@ -63,6 +57,15 @@ const generalApiLimiter = rateLimit({
   skip: (req) => req.method === "OPTIONS",
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "محاولات الإدارة كثيرة جداً، حاول لاحقاً" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS",
+});
+
 app.use(
   pinoHttp({
     logger,
@@ -88,6 +91,7 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/verify-email", authLimiter);
+app.use("/api/admin", adminLimiter);
 app.use("/api", generalApiLimiter);
 
 // 8 MB limit to accommodate base64-encoded image uploads (5 MB image ≈ 6.9 MB base64).
