@@ -2,7 +2,7 @@
  * AuthContext — single source of truth for authentication in Nexora.
  *
  * Responsibilities:
- *  - Persist the session token on-device (AsyncStorage)
+ *  - Persist the session token on native devices using SecureStore
  *  - Restore the session on app launch by calling GET /auth/me
  *  - Expose signUp / signIn / signOut / forgotPassword / verifyEmail actions
  *  - Expose the current PublicUser so any screen can read it
@@ -10,6 +10,8 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -60,7 +62,7 @@ interface AuthActions {
     messagingPrivacy?: string;
   }) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  deleteAccount: () => Promise<void>;
+  deleteAccount: (currentPassword: string) => Promise<void>;
 }
 
 export type AuthContextValue = AuthState & AuthActions;
@@ -69,14 +71,61 @@ export type AuthContextValue = AuthState & AuthActions;
 
 const TOKEN_KEY = "@nexora_session_token";
 
-const loadToken = (): Promise<string | null> =>
-  AsyncStorage.getItem(TOKEN_KEY);
+/**
+ * Native platforms use Android Keystore / iOS Keychain via SecureStore.
+ * Web keeps its existing AsyncStorage behavior because SecureStore is native-only.
+ *
+ * On native, migrate the old AsyncStorage token exactly once:
+ * write to SecureStore, read it back to verify, and only then delete the old copy.
+ * If secure storage fails, throw and do not silently fall back to plaintext storage.
+ */
+const loadToken = async (): Promise<string | null> => {
+  if (Platform.OS === "web") {
+    return AsyncStorage.getItem(TOKEN_KEY);
+  }
 
-const saveToken = (token: string): Promise<void> =>
-  AsyncStorage.setItem(TOKEN_KEY, token);
+  const secureToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (secureToken) return secureToken;
 
-const clearToken = (): Promise<void> =>
-  AsyncStorage.removeItem(TOKEN_KEY);
+  const legacyToken = await AsyncStorage.getItem(TOKEN_KEY);
+  if (!legacyToken) return null;
+
+  await SecureStore.setItemAsync(TOKEN_KEY, legacyToken);
+  const verifiedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+
+  if (verifiedToken !== legacyToken) {
+    throw new Error("تعذر التحقق من نقل جلسة الدخول إلى التخزين الآمن");
+  }
+
+  await AsyncStorage.removeItem(TOKEN_KEY);
+  return verifiedToken;
+};
+
+const saveToken = async (token: string): Promise<void> => {
+  if (Platform.OS === "web") {
+    await AsyncStorage.setItem(TOKEN_KEY, token);
+    return;
+  }
+
+  await SecureStore.setItemAsync(TOKEN_KEY, token);
+  const verifiedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (verifiedToken !== token) {
+    throw new Error("تعذر حفظ جلسة الدخول في التخزين الآمن");
+  }
+
+  // Remove any leftover legacy copy only after secure storage is verified.
+  await AsyncStorage.removeItem(TOKEN_KEY);
+};
+
+const clearToken = async (): Promise<void> => {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(TOKEN_KEY);
+    return;
+  }
+
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await AsyncStorage.removeItem(TOKEN_KEY);
+};
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -133,8 +182,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!cancelled) applySession(saved, data.user);
-      } catch {
-        await clearToken().catch(() => {});
+      } catch (err) {
+        // Only clear credentials when the server explicitly rejects the session.
+        // Network failures, timeouts and server errors must not sign users out.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          await clearToken().catch(() => {});
+        }
       } finally {
         clearTimeout(safetyTimer);
         if (!cancelled) setIsLoading(false);
@@ -250,10 +303,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [token],
   );
 
-  const deleteAccount = useCallback(async () => {
+  const deleteAccount = useCallback(async (currentPassword: string) => {
     if (!token) return;
     await apiFetch("/auth/account", {
       method: "DELETE",
+      body: JSON.stringify({ currentPassword }),
       token,
     });
     await clearToken().catch(() => {});

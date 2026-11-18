@@ -11,16 +11,14 @@ app.set("trust proxy", 1);
 const ALLOWED_ORIGINS: (string | RegExp)[] = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.expo\.sisko\.replit\.dev$/,
-  /^https:\/\/[a-zA-Z0-9-]+\.replit\.app$/,
 ];
-if (process.env["REPLIT_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
-}
-if (process.env["REPLIT_EXPO_DEV_DOMAIN"]) {
-  ALLOWED_ORIGINS.push(`https://${process.env["REPLIT_EXPO_DEV_DOMAIN"]}`);
-}
+
+// Production and staging origins are supplied as a comma-separated env var.
+const configuredOrigins = process.env["CORS_ALLOWED_ORIGINS"]
+  ?.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean) ?? [];
+ALLOWED_ORIGINS.push(...configuredOrigins);
 
 // ── CORS must come first so that ALL responses (including 429s from rate
 // limiters) carry the correct Access-Control-Allow-Origin header.
@@ -59,6 +57,15 @@ const generalApiLimiter = rateLimit({
   skip: (req) => req.method === "OPTIONS",
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "محاولات الإدارة كثيرة جداً، حاول لاحقاً" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS",
+});
+
 app.use(
   pinoHttp({
     logger,
@@ -82,6 +89,9 @@ app.use(
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/reset-password", authLimiter);
+app.use("/api/auth/verify-email", authLimiter);
+app.use("/api/admin", adminLimiter);
 app.use("/api", generalApiLimiter);
 
 // 8 MB limit to accommodate base64-encoded image uploads (5 MB image ≈ 6.9 MB base64).

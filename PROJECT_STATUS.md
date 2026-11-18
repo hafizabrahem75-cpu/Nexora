@@ -159,3 +159,285 @@ The reviewed tree contains generated build output, source maps, TypeScript build
 - Review diffs before merging to `main`.
 - Update this file only with verified outcomes, and record commit hashes for completed milestones.
 - Never commit secrets, production credentials, private keys, signing files or real user data.
+
+
+## 10. Work started on branch `development/no-replit-setup` (2026-11-17)
+
+The following configuration-only changes have been committed to the development branch; they have NOT yet been runtime-tested or merged into `main`:
+
+- Mobile dev script now runs the standard `expo start` command instead of injecting Replit-specific environment variables.
+- Mobile API client accepts `EXPO_PUBLIC_API_URL`; legacy `EXPO_PUBLIC_DOMAIN` remains as temporary fallback.
+- WebSocket client accepts `EXPO_PUBLIC_WS_URL`; legacy preview URL fallback remains temporarily.
+- API CORS accepts comma-separated `CORS_ALLOWED_ORIGINS`; localhost is allowed for development and old Replit variables remain only as a compatibility bridge.
+- Static Expo build script accepts `PUBLIC_BASE_URL` (or `EXPO_PUBLIC_WEB_URL`) before checking legacy Replit variables.
+- Removed the hardcoded `https://replit.com/` Expo Router plugin origin.
+- Added root `.gitignore` rules for environment files, build output, caches and signing/private-key files.
+- Added root `.env.example` with placeholders only. It contains no real credentials; `EXPO_PUBLIC_*` values are public client configuration and must never contain secrets.
+
+### Still pending in Replit independence phase
+
+- Inspect and decide whether to retire legacy `.replit`, `replit.nix`, `replit.md` and artifact metadata; do not delete them until all references are understood.
+- Review every remaining Replit-specific variable and script, including static build and workspace scripts.
+- Add a reproducible install/start/build guide for the intended Linux/Android development setup.
+- Run pnpm install, DB migration, API typecheck/build, mobile typecheck and Expo export in a real development environment.
+- Configure and test a real API and WebSocket deployment origin before building a release APK.
+
+### Important security follow-up
+
+- WebSocket authentication still places the session token in the URL query string. This is not fixed by the configurable URL work. Replace it with a safer authentication handshake and test that tokens are not written to logs.
+- Mobile session storage and server-side raw session-token storage remain separate high-priority security tasks described above.
+- No provider API keys, email passwords, storage credentials or production database secrets were added.
+
+
+### Security incident response added during Replit independence review (2026-11-17)
+
+- The tracked `.replit` file contained literal shared admin-secret values. Those values have been removed from the development branch file. Because the values existed in repository history, treat them as compromised and do not reuse them.
+- The mobile admin screen previously compiled `EXPO_PUBLIC_ADMIN_SECRET` into the client and sent it as `x-admin-secret`. This is not a safe authorization design because client-bundled secrets can be extracted.
+- Development branch replaces shared-secret admin authorization with a bearer-authenticated session and a server-side `users.isDeveloper` authorization check. The auth middleware now includes the server-controlled role flag in the authenticated user object.
+- Admin API calls from the mobile screen now use the signed-in session token; no admin secret is embedded in the app.
+- This is source-reviewed only. It still requires API/mobile typecheck, login/admin positive and negative authorization tests, and confirmation that only the intended owner account has `isDeveloper=true`.
+- Do not deploy or merge until those checks pass. The old `main` branch still has the prior shared-secret implementation until this pull request is reviewed and merged.
+
+
+### Session-token hardening and WebSocket authentication (2026-11-17)
+
+Changes committed to the development branch; not yet runtime-tested:
+
+- Added `hashSessionToken` using SHA-256 for high-entropy session tokens.
+- Registration and login now persist only the token digest in the existing sessions.token column; the raw token is returned to the client once.
+- REST authentication checks the digest and temporarily accepts legacy raw-token rows; a successful legacy authentication upgrades that row to a digest.
+- Logout deletes the digest rather than searching for the raw token.
+- WebSocket authentication now sends the session token in the first encrypted WebSocket frame instead of the URL query string. This avoids placing bearer tokens in URL paths that may be logged by proxies.
+- The WebSocket server limits payload size to 1 KB and allows only one initial authentication attempt before registering the connection.
+- Existing WebSocket and REST sessions are intended to remain compatible during the transition through legacy raw-token lookup and in-place digest upgrade.
+
+### Required validation before merge
+
+- Run API TypeScript check/build and mobile TypeScript check.
+- Verify registration/login return a usable raw token while database rows contain only SHA-256 digests.
+- Verify legacy raw-token sessions authenticate once and are upgraded.
+- Verify logout revokes the hashed session.
+- Verify WebSocket authentication succeeds only after the first auth frame; no token appears in the URL, proxy access logs or application logs.
+- Verify malformed/oversized WebSocket frames are rejected and unauthenticated sockets cannot receive events.
+- Review race handling, connection timeouts, reconnect behavior and logout while WebSocket is connected.
+- This source-only review does not constitute a security audit or prove end-to-end encryption of private messages.
+
+
+### Mobile session restore and WebSocket client follow-up (2026-11-17)
+
+- Fixed AuthContext startup behavior: temporary network failures, timeouts, and API 5xx errors no longer delete the locally saved session token. The app clears the saved token only when the server explicitly rejects the session with 401/403.
+- WebSocket client now waits for the server's `authenticated` acknowledgement before forwarding application events to app listeners.
+- These changes are source-reviewed only and still require device tests for offline startup, expired sessions, reconnects, and message delivery.
+
+### SecureStore dependency compatibility
+
+- The mobile app currently uses Expo SDK 54, while `expo-secure-store` is declared as `^56.0.4`.
+- Expo's SDK 54 versioned documentation recommends `~15.0.8` for SecureStore. Do not import/use SecureStore until the dependency and lockfile are aligned and installation/typecheck passes.
+- Next environment task: update the package to the SDK 54-compatible version using `pnpm expo install expo-secure-store` (or equivalent pinned version), regenerate `pnpm-lock.yaml`, then add the SecureStore config plugin and implement a safe one-time migration from AsyncStorage.
+- Keep web preview storage behavior separate; SecureStore is for native Android/iOS. Do not silently fall back to plaintext AsyncStorage on native if SecureStore fails.
+
+
+### Native session token storage migrated to Expo SecureStore (2026-11-17)
+
+Changes committed to `development/no-replit-setup`; runtime validation is still pending:
+
+- Aligned `expo-secure-store` to `~15.0.8`, the Expo SDK 54 compatible line, rather than the previously declared SDK 56 package.
+- Updated the pnpm lockfile importer, package resolution and snapshot for SecureStore 15.0.8.
+- Added the `expo-secure-store` config plugin to `artifacts/mobile/app.json`.
+- Native Android/iOS now read and write the session token through SecureStore (Android Keystore-backed encrypted preferences / iOS Keychain).
+- Web retains the existing AsyncStorage storage path because SecureStore is native-only.
+- Added one-time native migration: read legacy AsyncStorage token, write to SecureStore, read back and verify equality, then delete the legacy copy. If SecureStore fails or verification does not match, the code throws and does not silently fall back to plaintext storage.
+- Sign-in/sign-up writes the token to SecureStore and verifies it before returning; logout/deletion clears SecureStore and the legacy key.
+
+### Required tests before merge
+
+- `pnpm install --frozen-lockfile` from the repository root must succeed; the lockfile was edited based on the published 15.0.8 package metadata but has not yet been regenerated by pnpm in a real environment.
+- Run shared/API/mobile TypeScript checks.
+- On Android: fresh login stores token in SecureStore; restart restores session; migration moves old AsyncStorage token and removes old copy only after verified write; rejected/expired token clears both stores; network outage preserves secure token.
+- On web: ensure existing AsyncStorage login/restore/logout behavior still works.
+- Test app reinstall/backup behavior and device lock conditions on a physical Android device.
+- Do not claim the entire phone or application is immune to spyware, malware, rooted-device compromise or OS-level interception. SecureStore protects local token storage at rest; transport still relies on HTTPS/WSS and app/device security.
+
+
+### GitHub Actions validation result for SecureStore migration (2026-11-17)
+
+- Latest run for head commit `246fec181adac2a68f84df388b50616de7b06149` completed successfully.
+- `pnpm install --frozen-lockfile`: passed.
+- Shared libraries TypeScript check: passed.
+- API TypeScript check: passed.
+- Mobile TypeScript check: passed.
+- This confirms dependency lock consistency and static type checks in GitHub's Linux runner. It does not replace native Android runtime tests, Expo prebuild/doctor, API integration tests, or security tests on a physical device.
+
+
+### Expo SDK 54 compatibility review (2026-11-17)
+
+Reviewed Expo's own SDK 54 `bundledNativeModules.json` from the `expo/expo` repository tag `sdk-54`. It lists these compatible package ranges:
+
+- `expo-secure-store`: `~15.0.8` (already aligned)
+- `expo-contacts`: `~15.0.11`
+- `expo-crypto`: `~15.0.9`
+- `expo-local-authentication`: `~17.0.9`
+- `expo-notifications`: `~0.32.17`
+
+The current mobile package manifest still declares the latter four as SDK 56 versions. They have not been changed yet because their exact lockfile resolutions must be regenerated by pnpm; do not hand-edit integrity hashes or guess transitive package snapshots. Added a warning-only `expo install --check` step to GitHub Actions to report SDK compatibility without masking the regular typecheck job.
+
+Source: https://github.com/expo/expo/blob/sdk-54/packages/expo/bundledNativeModules.json
+
+### Additional release security blockers found during source review
+
+- Registration currently writes `emailVerified: true` directly. Email verification is not actually enforced for newly registered accounts. Keep this developer bypass only during controlled testing; remove it and require real verification before public release.
+- Admin routes are protected by server-side `requireAuth` plus the account's `isDeveloper` database flag; no shared admin secret is required in the current development branch. Still needs negative authorization tests and confirmation that only the owner's account is granted this flag.
+- WebSocket client now waits for server acknowledgement before dispatching application events. Needs integration tests for bad/expired tokens, reconnect, logout, and simultaneous sessions.
+
+
+### Production email-verification safety gate (2026-11-17)
+
+- Removed the unconditional `emailVerified: true` assignment during account registration.
+- New accounts are now unverified by default.
+- Temporary verification bypass is allowed only when BOTH conditions hold: `NODE_ENV` is not `production` and `ALLOW_UNVERIFIED_EMAIL=true`.
+- Production ignores this bypass even if the environment variable is accidentally set.
+- Real email delivery and verification-token lifecycle still need end-to-end implementation/testing before launch. For developer testing, set the explicit bypass only in a non-production environment; do not set it in production.
+
+
+## Security review update — 2026-11-17
+
+### Newly confirmed findings (server-side code review)
+- Profile visibility and messaging privacy fields exist, but the reviewed profile and conversation route handlers do not consistently enforce those preferences.
+- Password reset tokens are stored and queried as raw values; they should be stored as one-way digests and consumed atomically.
+- Account deletion currently has no current-password re-authentication.
+- Password change updates the password hash but does not revoke the user's existing sessions.
+- User profile posts and follower/following list endpoints expose data without applying the target user's visibility preference.
+- Image retrieval is intentionally unauthenticated for linked public-post images; this must be reconciled with private-account/post visibility before private content is supported.
+
+### Required remediation order
+1. Define exact privacy semantics for `everyone`, `friends`, and `nobody`; enforce them consistently on profile, posts, followers/following, search, and messaging endpoints.
+2. Hash password-reset and email-verification tokens; enforce one-time use and atomic consumption.
+3. Require password re-authentication for account deletion and other sensitive account actions.
+4. Revoke other active sessions after password changes; provide a session/device management path.
+5. Add authorization regression tests for cross-account IDOR attempts and private-resource access.
+6. Review image access/cache policy before introducing private posts or private accounts.
+
+No production secrets, paid-service credentials, or API keys are required for this remediation phase. This is a code-review checkpoint; runtime/security tests are still required before merging.
+
+
+## Privacy enforcement implementation checkpoint — 2026-11-17
+
+### Code changes made on development branch
+- User profile endpoint now checks the target user's `profileVisibility`: `everyone` permits viewing, `friends` requires a friendship, and other values deny access (except self).
+- User profile-post endpoint applies the same visibility check.
+- Followers and following list endpoints now apply profile visibility using the same everyone/friends/deny policy.
+- Conversation creation and message sending now check the recipient's `messagingPrivacy`: `everyone` allows, `friends` requires an existing friendship, and `nobody` or unknown values deny.
+- Changes were made in `users.ts`, `follows.ts`, and `conversations.ts`.
+
+### Important limitations — do not call privacy complete
+- Search and username lookup still need a privacy policy review.
+- Follow creation itself does not yet implement private-account follow requests.
+- Community global/following feeds, post detail/comments/likes, saved posts, and image delivery need a consistent visibility/authorization audit.
+- Existing conversations may be blocked from sending after a recipient changes messaging privacy; product behavior for existing threads needs a deliberate decision.
+- Privacy enum values and mobile settings UI must be verified together before release.
+- Automated authorization tests and runtime tests have not yet been run for these changes.
+
+### Next security tasks
+1. Review all community endpoints and image serving for private-resource access and IDOR.
+2. Verify settings UI and allowed privacy enum values against server enforcement.
+3. Add automated cross-user authorization tests for profiles, posts, followers/following, and conversations.
+4. Fix password reset/email verification token hashing and atomic single-use consumption.
+5. Require re-authentication for sensitive account changes and revoke sessions after password change.
+6. Continue admin authorization and secrets-history remediation.
+
+
+## Community image access hardening — 2026-11-17
+- Image delivery endpoint now requires an authenticated session.
+- Image lookup joins the linked post and owner account, then applies owner profile visibility: self always allowed; `everyone` allowed; `friends` requires a friendship; other/unknown visibility values denied.
+- Image responses use private/no-store caching and `X-Content-Type-Options: nosniff`.
+- This does not complete community privacy: feed queries, post detail, comments, likes, saves, reports, and follow/search behavior still require a systematic authorization review.
+- Runtime tests and mobile image loading regression tests have not yet been run. Public unauthenticated image embedding is no longer supported by this endpoint; verify intended UX before release.
+
+
+## Community feed visibility checkpoint — 2026-11-17
+- Global community feed and following feed now filter post rows against the author's profile visibility before returning post content or image identifiers.
+- `everyone` posts are visible; `friends` posts require a friendship; unknown/restricted visibility values are hidden from other users; owners can see their own posts.
+- This adds per-row friendship lookups and is a correctness-first implementation. Before production, optimize with a joined/CTE query and add pagination to avoid N+1 query load.
+- Still not complete: comments, likes lists, saved posts, post detail, notifications, search, follow requests, and all image/mobile loading paths need authorization review and tests.
+- No runtime or automated security regression test has been executed for this change yet.
+
+
+## Community interaction and realtime privacy hardening — 2026-11-17
+- Added a shared server-side post access check and applied it to like/unlike, likes list, comments list/create, save/unsave, and report routes.
+- The check permits the owner, permits `everyone`, requires friendship for `friends`, and denies unknown/restricted visibility values.
+- Replaced community route WebSocket `broadcastAll` calls for post updates/deletes/likes/unlikes/comments with targeted delivery to the acting user and post owner. This prevents private post IDs, comment text, and interaction events from being pushed to every connected account.
+- This is not a full realtime audience implementation: other authorized viewers may not receive live updates until a visibility-aware audience broadcaster is implemented.
+- No runtime tests or authorization regression suite has been run yet. Review WebSocket recipient semantics and client expectations before merge.
+
+
+## Account recovery and sensitive-action hardening — 2026-11-18
+- New password-reset tokens are stored as SHA-256 digests; raw tokens are sent only to the email delivery function and are not persisted in the token table.
+- New email-verification tokens are stored as SHA-256 digests.
+- Password-reset tokens are atomically marked used with a conditional update before password replacement; concurrent reuse is rejected.
+- Email-verification tokens are consumed with conditional delete-and-return before marking the account verified, preventing normal concurrent replay.
+- Password change revokes all other sessions while retaining the current authenticated session.
+- Account deletion now requires the current password.
+- Compatibility note: outstanding tokens created before this digest change will no longer validate. This should be acceptable before launch, but must be communicated if there are active test accounts.
+- Follow-up required: wrap token consumption + password update + session revocation in a database transaction; add rate limits to login/forgot/reset/verify endpoints; add password-change notification; add session/device management and re-authentication for email changes; run concurrency and end-to-end tests. No runtime tests have been executed for this change.
+
+
+## Authentication abuse controls and email-secret logging — 2026-11-18
+- Added the shared auth rate limiter to `/api/auth/reset-password` and `/api/auth/verify-email` in addition to login/register/forgot-password.
+- Hardened the email stub: it is development-only and throws in production rather than logging raw password-reset or verification tokens. No email provider is configured yet; production account registration/recovery must not be enabled until a real provider or another verified delivery mechanism is configured and tested.
+- Confirmed `requireAuth` checks session expiry and hashes session tokens, while retaining a temporary legacy raw-token compatibility path that upgrades the token after authentication. Remove that compatibility path after legacy sessions have expired/revoked.
+- Confirmed admin middleware requires authenticated `isDeveloper`; still verify that only the intended owner account can ever receive this DB flag and add audited admin actions / re-authentication.
+- No build, typecheck, runtime, concurrency, or mobile regression tests were run for these changes.
+
+
+## Owner-only admin hardening — 2026-11-18
+- Admin middleware now fails closed unless all three conditions hold: authenticated session, server-side `isDeveloper=true`, and user ID exactly matches the deployment-only `NEXORA_OWNER_USER_ID`.
+- `NEXORA_OWNER_USER_ID` is a configuration value, not a password or API key. It must be set to the owner's database user UUID in the production server environment. If absent, all admin routes are disabled by design.
+- User registration and profile update schemas reviewed in auth route do not accept `isDeveloper`; it is not client-settable through those endpoints.
+- Admin endpoints still need further review for destructive-action re-authentication, audit logging, CSRF posture if cookie auth is ever introduced, pagination input validation, and tests proving non-owner developer-flagged accounts are denied.
+- No runtime/build test has been run.
+
+
+## Admin and mobile security review — 2026-11-18
+- Admin middleware now requires the authenticated account ID to equal server configuration `NEXORA_OWNER_USER_ID`, as well as `isDeveloper=true`; missing owner configuration disables admin routes.
+- Reviewed auth registration/profile schemas: clients cannot set `isDeveloper` through those endpoints.
+- Mobile native session token storage uses Expo SecureStore (Android Keystore / iOS Keychain) with verified migration from legacy AsyncStorage. Web still uses AsyncStorage; this is a known weaker web storage posture and needs separate web threat-model review.
+- Found and fixed a client/server mismatch in account deletion: the server requires currentPassword, so the mobile settings flow now requests it and sends it to the API.
+- Important remaining mobile findings: app-lock PIN uses SHA-256 with a fixed public salt and has no failed-attempt throttling; upgrade to a slow KDF / platform-backed credential protection and add lockout/backoff. Biometric unlock flow and lock initialization need device tests.
+- Registration client currently types the signup response as always containing a session token, while production server may return `emailVerificationRequired` without a token. Align UI flow before production email verification is enabled.
+- Admin destructive actions currently lack fresh password/biometric confirmation and immutable audit trail; implement before launch.
+- No build, typecheck, API integration, or physical-device tests have been run for these changes.
+
+## Product vision and roadmap review — deferred gate
+After security remediation and test gates, perform a formal comparison against the original Nexora vision and blueprint before adding more features. Reconcile each planned capability as implemented / partial / missing / deferred, including social community, messaging, friends/follows, goals/tasks/notes, real AI assistant, video-to-goals import, notifications/push, search/discovery, media, translation, recommendations/marketplace, support/admin, privacy/security, and future embedded browser. Add missing approved items to the roadmap, preserve the Arabic-first premium experience, and keep paid AI/email/service credentials deferred until the core product is stable and a low-cost/free option is chosen.
+
+
+## Security hardening batch — 2026-11-18
+
+### Mobile app lock
+- Replaced the fixed public PIN salt with a per-install random 128-bit salt and a versioned stored hash format.
+- Added persistent failed-PIN tracking and exponential cooldown starting after five failures, capped at 15 minutes.
+- Existing legacy PIN hashes are migrated to the new salted format after the user successfully enters the old PIN.
+- Changing an existing PIN now requires the current PIN first.
+- Disabling app lock now requires device authentication through the platform authenticator.
+- SecureStore write failures now surface instead of being silently ignored during PIN setup/migration.
+- Important limitation: SHA-256 is still a fast hash, not a dedicated password KDF such as PBKDF2/Argon2/scrypt. The random salt and UI throttling improve the situation but do not provide offline brute-force resistance if a rooted/compromised device exposes the stored hash. A native KDF or device-backed credential design remains a release-hardening task.
+
+### Admin API
+- Added a dedicated admin rate limit (20 requests / 15 minutes per IP) in addition to the general API limiter.
+- Removed legacy Replit preview domains from automatic CORS allowlisting. Only localhost and explicitly configured `CORS_ALLOWED_ORIGINS` remain.
+- Admin user/support pagination now rejects invalid, negative, fractional, unsafe, or over-200 limits.
+- Support type filter now accepts only report/help/feature/feedback.
+- Admin suspend/unsuspend/delete endpoints refuse to target the configured owner account.
+
+### Authentication atomicity
+- Password-reset token consumption, password replacement, and session revocation now run in one database transaction.
+- Email-verification token consumption and account verification now run in one database transaction.
+- Password change and revocation of other sessions now run in one database transaction.
+
+### Still required before release
+- Run workspace typecheck/build and API/mobile checks. These GitHub edits have not yet been executed in a runtime.
+- Add automated tests for PIN cooldown, legacy migration, PIN change/disable confirmation, admin owner protection, pagination validation, concurrent reset/verify replay, and session revocation.
+- Replace SHA-256 PIN derivation with a vetted slow KDF / platform-backed design before production.
+- Add admin re-authentication and immutable audit records for destructive actions.
+- Confirm production CORS origins and reverse-proxy trust settings.
+- Do not merge or deploy until tests pass and email delivery is configured for production.

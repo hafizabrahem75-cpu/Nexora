@@ -77,7 +77,7 @@ export default function SettingsScreen() {
 
   const { signOut, user, token, changePassword, deleteAccount, updateUser } = useAuth();
   const { settings, accent, updateSettings } = useSettings();
-  const { pinEnabled, biometricEnabled, hasBiometric, enablePin, disablePin, toggleBiometric } = useAppLock();
+  const { pinEnabled, biometricEnabled, hasBiometric, enablePin, disablePin, unlock, toggleBiometric } = useAppLock();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
@@ -90,6 +90,7 @@ export default function SettingsScreen() {
 
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   const [privacyModal, setPrivacyModal] = useState(false);
@@ -102,7 +103,7 @@ export default function SettingsScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   const [pinModal, setPinModal] = useState(false);
-  const [pinStep, setPinStep] = useState<"enter" | "confirm">("enter");
+  const [pinStep, setPinStep] = useState<"verify" | "enter" | "confirm">("enter");
   const [pinFirst, setPinFirst] = useState("");
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
@@ -161,12 +162,17 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()) return;
+    if (deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase() || !deletePassword) return;
     setDeleting(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePassword);
+      setDeleteModal(false);
+      setDeleteConfirm("");
+      setDeletePassword("");
       router.replace("/");
-    } catch { /* ignore */ } finally { setDeleting(false); }
+    } catch (err: any) {
+      Alert.alert(t.common.error, err?.message ?? t.common.error);
+    } finally { setDeleting(false); }
   };
 
   const openSupport = (type: SupportType) => {
@@ -220,7 +226,7 @@ export default function SettingsScreen() {
     if (pinEnabled) {
       Alert.alert("إيقاف قفل PIN", "هل تريد إيقاف قفل التطبيق بـ PIN؟", [
         { text: "إلغاء", style: "cancel" },
-        { text: "إيقاف", style: "destructive", onPress: () => disablePin() },
+        { text: "إيقاف", style: "destructive", onPress: async () => { const ok = await disablePin(); if (!ok) Alert.alert("لم يتم الإيقاف", "تعذر التحقق من هوية صاحب الجهاز."); } },
       ]);
     } else {
       setPinStep("enter");
@@ -235,35 +241,60 @@ export default function SettingsScreen() {
   const PIN_REQUIRED_LENGTH = 6;
 
   const handlePinConfirm = async () => {
-    if (pinStep === "enter") {
-      if (pinInput.length !== PIN_REQUIRED_LENGTH) {
-        setPinError(`يجب أن يكون الرمز ${PIN_REQUIRED_LENGTH} أرقام بالضبط`);
-        return;
+    if (pinInput.length !== PIN_REQUIRED_LENGTH) {
+      setPinError(`يجب أن يكون الرمز ${PIN_REQUIRED_LENGTH} أرقام بالضبط`);
+      return;
+    }
+
+    if (pinStep === "verify") {
+      setPinLoading(true);
+      try {
+        const valid = await unlock(pinInput);
+        if (!valid) {
+          setPinError("رمز PIN الحالي غير صحيح أو توجد مهلة حماية. حاول لاحقاً.");
+          setPinInput("");
+          return;
+        }
+        setPinInput("");
+        setPinStep("enter");
+        setPinError("");
+      } finally {
+        setPinLoading(false);
       }
+      return;
+    }
+
+    if (pinStep === "enter") {
       setPinFirst(pinInput);
       setPinInput("");
       setPinStep("confirm");
       setPinError("");
-    } else {
-      if (pinInput.length !== PIN_REQUIRED_LENGTH) {
-        setPinError(`يجب أن يكون الرمز ${PIN_REQUIRED_LENGTH} أرقام بالضبط`);
-        return;
-      }
-      if (pinInput !== pinFirst) { setPinError("الرمزان غير متطابقين، حاول مرة أخرى"); setPinInput(""); return; }
-      setPinLoading(true);
-      try {
-        await enablePin(pinInput);
-        setPinModal(false);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("تم التفعيل", "تم تفعيل قفل التطبيق بـ PIN بنجاح");
-      } catch (e: any) {
-        setPinError(e?.message ?? "حدث خطأ ما");
-      } finally { setPinLoading(false); }
+      return;
+    }
+
+    if (pinInput !== pinFirst) {
+      setPinError("الرمزان غير متطابقين، حاول مرة أخرى");
+      setPinInput("");
+      return;
+    }
+
+    setPinLoading(true);
+    try {
+      await enablePin(pinInput);
+      setPinModal(false);
+      setPinFirst("");
+      setPinInput("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("تم التفعيل", "تم تفعيل قفل التطبيق بـ PIN بنجاح");
+    } catch (e: any) {
+      setPinError(e?.message ?? "حدث خطأ ما");
+    } finally {
+      setPinLoading(false);
     }
   };
 
   const handleChangePinPress = () => {
-    setPinStep("enter");
+    setPinStep("verify");
     setPinFirst("");
     setPinInput("");
     setPinError("");
@@ -583,6 +614,7 @@ export default function SettingsScreen() {
             <Text style={styles.sheetTitle}>{t.settings.deleteTitle}</Text>
             <Text style={[styles.deleteWarning, { color: colors.textSecondary }]}>{t.settings.deleteWarning}</Text>
             <Text style={styles.deleteHint}>{t.settings.deleteHint}</Text>
+            <TextInput style={styles.input} placeholder="كلمة المرور الحالية" placeholderTextColor={colors.placeholder} value={deletePassword} onChangeText={setDeletePassword} secureTextEntry textAlign="right" />
             <TextInput style={[styles.input, { borderColor: "#FF453A44" }]} placeholder={t.settings.deleteConfirmWord} placeholderTextColor={colors.placeholder} value={deleteConfirm} onChangeText={setDeleteConfirm} textAlign="right" />
             <View style={styles.modalBtns}>
               <Pressable style={[styles.modalBtn, styles.cancelModalBtn]} onPress={() => setDeleteModal(false)}>
@@ -591,7 +623,7 @@ export default function SettingsScreen() {
               <Pressable
                 style={[styles.modalBtn, { backgroundColor: deleteConfirm.trim().toLowerCase() === t.settings.deleteConfirmWord.toLowerCase() ? "#FF453A" : "#2C1515" }]}
                 onPress={handleDeleteAccount}
-                disabled={deleting || deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()}
+                disabled={deleting || !deletePassword || deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase()}
               >
                 {deleting ? <ActivityIndicator size="small" color="#FFF" /> : (
                   <Text style={[styles.confirmBtnText, deleteConfirm.trim().toLowerCase() !== t.settings.deleteConfirmWord.toLowerCase() && { color: "#FF453A44" }]}>{t.common.delete}</Text>
@@ -665,9 +697,9 @@ export default function SettingsScreen() {
         <KeyboardAvoidingView style={styles.sheetWrap} behavior={Platform.OS === "ios" ? "position" : "height"}>
           <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>{pinStep === "enter" ? "أدخل رمز PIN الجديد" : "أكّد رمز PIN"}</Text>
+            <Text style={styles.sheetTitle}>{pinStep === "verify" ? "تحقق من رمز PIN الحالي" : pinStep === "enter" ? "أدخل رمز PIN الجديد" : "أكّد رمز PIN"}</Text>
             <Text style={[styles.deleteWarning, { color: colors.textSecondary }]}>
-              {pinStep === "enter" ? `أدخل رمزاً مكوناً من ${PIN_REQUIRED_LENGTH} أرقام لحماية التطبيق. لن يُشارَك مع أحد.` : "أدخل الرمز مرة أخرى للتأكيد."}
+              {pinStep === "verify" ? "أدخل رمزك الحالي أولاً للسماح بتغييره." : pinStep === "enter" ? `أدخل رمزاً مكوناً من ${PIN_REQUIRED_LENGTH} أرقام لحماية التطبيق. لن يُشارَك مع أحد.` : "أدخل الرمز مرة أخرى للتأكيد."}
             </Text>
             <TextInput
               style={styles.input}
@@ -692,7 +724,7 @@ export default function SettingsScreen() {
                 disabled={!pinInput.trim() || pinLoading}
               >
                 {pinLoading ? <ActivityIndicator size="small" color="#FFF" /> : (
-                  <Text style={styles.confirmBtnText}>{pinStep === "enter" ? "التالي" : "تأكيد"}</Text>
+                  <Text style={styles.confirmBtnText}>{pinStep === "confirm" ? "تأكيد" : "التالي"}</Text>
                 )}
               </Pressable>
             </View>

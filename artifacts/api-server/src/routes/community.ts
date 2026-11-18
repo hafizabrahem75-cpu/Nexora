@@ -1,4 +1,4 @@
-import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable } from "@workspace/db";
+import { db, communityPostsTable, followsTable, postCommentsTable, postLikesTable, postReportsTable, postImagesTable, savedPostsTable, usersTable, friendshipsTable } from "@workspace/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
@@ -7,6 +7,51 @@ import { wsManager } from "../lib/wsManager";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
+
+async function canAccessPost(postId: string, viewerId: string): Promise<boolean> {
+  const [post] = await db.select({
+    ownerId: communityPostsTable.userId,
+    visibility: usersTable.profileVisibility,
+  }).from(communityPostsTable)
+    .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
+    .where(eq(communityPostsTable.id, postId)).limit(1);
+  if (!post) return false;
+  if (post.ownerId === viewerId || post.visibility === "everyone") return true;
+  if (post.visibility !== "friends") return false;
+  const [userId1, userId2] = post.ownerId < viewerId
+    ? [post.ownerId, viewerId] : [viewerId, post.ownerId];
+  const [friendship] = await db.select({ id: friendshipsTable.id })
+    .from(friendshipsTable)
+    .where(and(eq(friendshipsTable.userId1, userId1), eq(friendshipsTable.userId2, userId2)))
+    .limit(1);
+  return !!friendship;
+}
+
+// Filter feed rows by the author's profile visibility before returning any
+// post content or image identifiers to the requesting account.
+async function filterVisiblePosts<T extends { author: { id: string; profileVisibility: string } }>(
+  rows: T[],
+  viewerId: string,
+): Promise<T[]> {
+  const visible: T[] = [];
+  for (const row of rows) {
+    if (row.author.id === viewerId || row.author.profileVisibility === "everyone") {
+      visible.push(row);
+      continue;
+    }
+    if (row.author.profileVisibility !== "friends") continue;
+    const [userId1, userId2] = row.author.id < viewerId
+      ? [row.author.id, viewerId] : [viewerId, row.author.id];
+    const [friendship] = await db.select({ id: friendshipsTable.id })
+      .from(friendshipsTable)
+      .where(and(
+        eq(friendshipsTable.userId1, userId1),
+        eq(friendshipsTable.userId2, userId2),
+      )).limit(1);
+    if (friendship) visible.push(row);
+  }
+  return visible;
+}
 
 const byUser = (req: Express.Request) =>
   (req as AuthRequest).userId ?? "anonymous";
@@ -234,12 +279,19 @@ router.post("/images", requireAuth, imageUploadLimiter, async (req: AuthRequest,
 // Only serves images that are linked to a published post (postId IS NOT NULL)
 // so unlinked/orphan uploads are never exposed.
 
-router.get("/images/:id", async (req, res) => {
+router.get("/images/:id", requireAuth, async (req: AuthRequest, res) => {
   const imageId = req.params.id as string;
   try {
     const [row] = await db
-      .select({ mimeType: postImagesTable.mimeType, data: postImagesTable.data })
+      .select({
+        mimeType: postImagesTable.mimeType,
+        data: postImagesTable.data,
+        ownerId: usersTable.id,
+        visibility: usersTable.profileVisibility,
+      })
       .from(postImagesTable)
+      .innerJoin(communityPostsTable, eq(postImagesTable.postId, communityPostsTable.id))
+      .innerJoin(usersTable, eq(communityPostsTable.userId, usersTable.id))
       .where(and(eq(postImagesTable.id, imageId), isNotNull(postImagesTable.postId)))
       .limit(1);
 
@@ -248,10 +300,31 @@ router.get("/images/:id", async (req, res) => {
       return;
     }
 
+    if (row.ownerId !== req.userId) {
+      if (row.visibility === "friends") {
+        const [userId1, userId2] = row.ownerId < req.userId!
+          ? [row.ownerId, req.userId!] : [req.userId!, row.ownerId];
+        const [friendship] = await db.select({ id: friendshipsTable.id })
+          .from(friendshipsTable)
+          .where(and(
+            eq(friendshipsTable.userId1, userId1),
+            eq(friendshipsTable.userId2, userId2),
+          )).limit(1);
+        if (!friendship) {
+          res.status(404).json({ error: "الصورة غير موجودة" });
+          return;
+        }
+      } else if (row.visibility !== "everyone") {
+        res.status(404).json({ error: "الصورة غير موجودة" });
+        return;
+      }
+    }
+
     const buffer = Buffer.from(row.data, "base64");
     res.set("Content-Type", row.mimeType);
     res.set("Content-Length", String(buffer.length));
-    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Cache-Control", "private, no-store");
+    res.set("X-Content-Type-Options", "nosniff");
     res.send(buffer);
   } catch (err) {
     // req.log not available (no pino on this path) — use console as fallback
@@ -276,6 +349,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
           username:       usersTable.username,
           avatarColor:    usersTable.avatarColor,
           avatarImageUri: usersTable.avatarImageUri,
+          profileVisibility: usersTable.profileVisibility,
         },
       })
       .from(communityPostsTable)
@@ -283,7 +357,8 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = await filterVisiblePosts(rows, req.userId!);
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -301,7 +376,7 @@ router.get("/posts", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
@@ -346,7 +421,8 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(communityPostsTable.createdAt))
       .limit(100);
 
-    const postIds = rows.map((r) => r.id);
+    const visibleRows = await filterVisiblePosts(rows, userId);
+    const postIds = visibleRows.map((r) => r.id);
 
     const [likedRows, imageMap] = await Promise.all([
       rows.length > 0
@@ -359,7 +435,7 @@ router.get("/posts/following", requireAuth, async (req: AuthRequest, res) => {
     ]);
 
     const likedSet = new Set(likedRows.map((l) => l.postId));
-    const posts = rows.map((r) => ({
+    const posts = visibleRows.map((r) => ({
       ...r,
       isLiked: likedSet.has(r.id),
       images:  imageMap.get(r.id) ?? [],
@@ -495,7 +571,7 @@ router.put("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
       .where(eq(communityPostsTable.id, postId))
       .returning();
 
-    wsManager.broadcastAll({ type: "post_updated", payload: { postId, content: updated!.content } });
+    wsManager.broadcast([userId], { type: "post_updated", payload: { postId, content: updated!.content } });
     res.json({ post: updated });
   } catch (err) {
     req.log.error(err, "editPost failed");
@@ -518,7 +594,7 @@ router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 
     await db.delete(communityPostsTable).where(eq(communityPostsTable.id, postId));
     // post_likes, post_comments and post_images cascade automatically
-    wsManager.broadcastAll({ type: "post_deleted", payload: { postId } });
+    wsManager.broadcast([userId], { type: "post_deleted", payload: { postId } });
     res.json({ deleted: true });
   } catch (err) {
     req.log.error(err, "deletePost failed");
@@ -530,6 +606,10 @@ router.delete("/posts/:id", requireAuth, async (req: AuthRequest, res) => {
 router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const inserted = await db
       .insert(postLikesTable)
       .values({ userId: req.userId!, postId })
@@ -556,7 +636,7 @@ router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest
       return;
     }
 
-    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
+    wsManager.broadcast([req.userId!, updated.ownerId], { type: "post_liked", payload: { postId, likesCount: updated.likesCount } });
 
     if (updated.ownerId !== req.userId) {
       wsManager.notifyPostLiked({
@@ -577,6 +657,10 @@ router.post("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest
 router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const deleted = await db
       .delete(postLikesTable)
       .where(
@@ -600,9 +684,9 @@ router.delete("/posts/:id/like", requireAuth, likeLimiter, async (req: AuthReque
       .update(communityPostsTable)
       .set({ likesCount: sql`GREATEST(${communityPostsTable.likesCount} - 1, 0)` })
       .where(eq(communityPostsTable.id, postId))
-      .returning({ likesCount: communityPostsTable.likesCount });
+      .returning({ likesCount: communityPostsTable.likesCount, ownerId: communityPostsTable.userId });
 
-    wsManager.broadcastAll({ type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
+    wsManager.broadcast(updated ? [req.userId!, updated.ownerId] : [req.userId!], { type: "post_liked", payload: { postId, likesCount: updated?.likesCount ?? 0 } });
     res.json({ likesCount: updated?.likesCount ?? 0 });
   } catch (err) {
     req.log.error(err, "unlikePost failed");
@@ -619,6 +703,10 @@ router.get("/posts/:id/likes", requireAuth, async (req: AuthRequest, res) => {
   const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const [post] = await db
       .select({ id: communityPostsTable.id })
       .from(communityPostsTable)
@@ -667,6 +755,10 @@ router.get("/posts/:id/likes", requireAuth, async (req: AuthRequest, res) => {
 router.get("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const rows = await db
       .select({
         id:        postCommentsTable.id,
@@ -706,6 +798,10 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
     return;
   }
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const [inserted] = await db
       .insert(postCommentsTable)
       .values({ postId, userId: req.userId!, content: parsed.data.content })
@@ -730,7 +826,7 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
       },
     };
 
-    wsManager.broadcastAll({
+    wsManager.broadcast(updated ? [req.userId!, updated.ownerId] : [req.userId!], {
       type: "post_commented",
       payload: { postId, comment, commentsCount: updated?.commentsCount ?? 0 },
     });
@@ -756,6 +852,10 @@ router.post("/posts/:id/comments", requireAuth, commentLimiter, async (req: Auth
 router.post("/posts/:id/save", requireAuth, saveLimiter, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     await db
       .insert(savedPostsTable)
       .values({ userId: req.userId!, postId })
@@ -771,6 +871,10 @@ router.post("/posts/:id/save", requireAuth, saveLimiter, async (req: AuthRequest
 router.delete("/posts/:id/save", requireAuth, async (req: AuthRequest, res) => {
   const postId = req.params.id as string;
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     await db
       .delete(savedPostsTable)
       .where(and(eq(savedPostsTable.userId, req.userId!), eq(savedPostsTable.postId, postId)));
@@ -794,6 +898,10 @@ router.post("/posts/:id/report", requireAuth, reportLimiter, async (req: AuthReq
     return;
   }
   try {
+    if (!(await canAccessPost(postId, req.userId!))) {
+      res.status(404).json({ error: "المنشور غير موجود" });
+      return;
+    }
     const [post] = await db
       .select({ id: communityPostsTable.id })
       .from(communityPostsTable)
