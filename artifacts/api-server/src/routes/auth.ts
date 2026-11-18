@@ -267,17 +267,17 @@ router.post("/change-password", requireAuth, async (req: AuthRequest, res) => {
     }
 
     const passwordHash = await bcrypt.hash(parsed.data.newPassword, BCRYPT_ROUNDS);
-    await db
-      .update(usersTable)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(usersTable.id, req.userId!));
-
-    // Revoke every other device session; keep the session used for this request.
+    // Credential update and revocation of other devices are atomic.
     const currentToken = (req.headers.authorization ?? "").slice(7).trim();
-    await db.delete(sessionsTable).where(and(
-      eq(sessionsTable.userId, req.userId!),
-      ne(sessionsTable.token, hashSessionToken(currentToken)),
-    ));
+    await db.transaction(async (tx) => {
+      await tx.update(usersTable)
+        .set({ passwordHash, updatedAt: new Date() })
+        .where(eq(usersTable.id, req.userId!));
+      await tx.delete(sessionsTable).where(and(
+        eq(sessionsTable.userId, req.userId!),
+        ne(sessionsTable.token, hashSessionToken(currentToken)),
+      ));
+    });
 
     res.json({ ok: true, otherSessionsRevoked: true });
   } catch (err) {
@@ -376,26 +376,29 @@ router.post("/reset-password", async (req, res) => {
       return;
     }
 
-    // Atomically consume the reset token before changing credentials.
-    const [consumed] = await db.update(passwordResetTokensTable)
-      .set({ used: true })
-      .where(and(
-        eq(passwordResetTokensTable.id, row.id),
-        eq(passwordResetTokensTable.used, false),
-        gt(passwordResetTokensTable.expiresAt, new Date()),
-      ))
-      .returning({ id: passwordResetTokensTable.id });
-    if (!consumed) {
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const completed = await db.transaction(async (tx) => {
+      // Consume token, update credentials and revoke sessions as one atomic unit.
+      const [consumed] = await tx.update(passwordResetTokensTable)
+        .set({ used: true })
+        .where(and(
+          eq(passwordResetTokensTable.id, row.id),
+          eq(passwordResetTokensTable.used, false),
+          gt(passwordResetTokensTable.expiresAt, new Date()),
+        ))
+        .returning({ id: passwordResetTokensTable.id });
+      if (!consumed) return false;
+
+      await tx.update(usersTable)
+        .set({ passwordHash, updatedAt: new Date() })
+        .where(eq(usersTable.id, row.userId));
+      await tx.delete(sessionsTable).where(eq(sessionsTable.userId, row.userId));
+      return true;
+    });
+    if (!completed) {
       res.status(400).json({ error: "رابط إعادة التعيين مستخدم أو منتهي الصلاحية" });
       return;
     }
-
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    await db.update(usersTable)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(usersTable.id, row.userId));
-
-    await db.delete(sessionsTable).where(eq(sessionsTable.userId, row.userId));
 
     res.json({ ok: true, message: "تم تغيير كلمة المرور بنجاح" });
   } catch (err) {
@@ -431,21 +434,25 @@ router.post("/verify-email", async (req, res) => {
       return;
     }
 
-    // Delete-and-return makes a verification token single-use under concurrent requests.
-    const [consumed] = await db.delete(emailVerificationTokensTable)
-      .where(and(
-        eq(emailVerificationTokensTable.id, row.id),
-        gt(emailVerificationTokensTable.expiresAt, new Date()),
-      ))
-      .returning({ id: emailVerificationTokensTable.id });
-    if (!consumed) {
+    const completed = await db.transaction(async (tx) => {
+      // Consume the one-time token and verify the account atomically.
+      const [consumed] = await tx.delete(emailVerificationTokensTable)
+        .where(and(
+          eq(emailVerificationTokensTable.id, row.id),
+          gt(emailVerificationTokensTable.expiresAt, new Date()),
+        ))
+        .returning({ id: emailVerificationTokensTable.id });
+      if (!consumed) return false;
+
+      await tx.update(usersTable)
+        .set({ emailVerified: true, updatedAt: new Date() })
+        .where(eq(usersTable.id, row.userId));
+      return true;
+    });
+    if (!completed) {
       res.status(400).json({ error: "رمز التحقق مستخدم أو منتهي الصلاحية" });
       return;
     }
-
-    await db.update(usersTable)
-      .set({ emailVerified: true, updatedAt: new Date() })
-      .where(eq(usersTable.id, row.userId));
 
     res.json({ ok: true, message: "تم التحقق من البريد الإلكتروني بنجاح" });
   } catch (err) {
