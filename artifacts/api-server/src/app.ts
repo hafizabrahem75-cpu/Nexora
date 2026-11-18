@@ -86,6 +86,8 @@ app.use(
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/reset-password", authLimiter);
+app.use("/api/auth/verify-email", authLimiter);
 app.use("/api", generalApiLimiter);
 
 // 8 MB limit to accommodate base64-encoded image uploads (5 MB image ≈ 6.9 MB base64).
