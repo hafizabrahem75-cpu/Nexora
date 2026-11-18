@@ -379,3 +379,11 @@ No production secrets, paid-service credentials, or API keys are required for th
 - Account deletion now requires the current password.
 - Compatibility note: outstanding tokens created before this digest change will no longer validate. This should be acceptable before launch, but must be communicated if there are active test accounts.
 - Follow-up required: wrap token consumption + password update + session revocation in a database transaction; add rate limits to login/forgot/reset/verify endpoints; add password-change notification; add session/device management and re-authentication for email changes; run concurrency and end-to-end tests. No runtime tests have been executed for this change.
+
+
+## Authentication abuse controls and email-secret logging — 2026-11-18
+- Added the shared auth rate limiter to `/api/auth/reset-password` and `/api/auth/verify-email` in addition to login/register/forgot-password.
+- Hardened the email stub: it is development-only and throws in production rather than logging raw password-reset or verification tokens. No email provider is configured yet; production account registration/recovery must not be enabled until a real provider or another verified delivery mechanism is configured and tested.
+- Confirmed `requireAuth` checks session expiry and hashes session tokens, while retaining a temporary legacy raw-token compatibility path that upgrades the token after authentication. Remove that compatibility path after legacy sessions have expired/revoked.
+- Confirmed admin middleware requires authenticated `isDeveloper`; still verify that only the intended owner account can ever receive this DB flag and add audited admin actions / re-authentication.
+- No build, typecheck, runtime, concurrency, or mobile regression tests were run for these changes.
