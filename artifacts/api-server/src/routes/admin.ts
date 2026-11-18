@@ -12,12 +12,30 @@ import {
   usersTable,
 } from "@workspace/db";
 import { count, desc, eq } from "drizzle-orm";
+import type { Request } from "express";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { wsManager } from "../lib/wsManager";
 
 const router: IRouter = Router();
+
+const MAX_ADMIN_PAGE_SIZE = 200;
+
+function parseAdminPagination(req: Request): { limit: number; offset: number } | null {
+  const rawLimit = req.query["limit"] ?? "50";
+  const rawOffset = req.query["offset"] ?? "0";
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_ADMIN_PAGE_SIZE) return null;
+  if (!Number.isSafeInteger(offset) || offset < 0) return null;
+  return { limit, offset };
+}
+
+function isProtectedOwnerTarget(id: string): boolean {
+  const ownerId = process.env.NEXORA_OWNER_USER_ID?.trim();
+  return !!ownerId && id === ownerId;
+}
 
 router.use(requireAdmin);
 
@@ -61,8 +79,12 @@ router.get("/stats", async (_req, res) => {
 
 // ─── GET /admin/users ─────────────────────────────────────────────────────────
 router.get("/users", async (req, res) => {
-  const limit = Math.min(Number(req.query["limit"] ?? 50), 200);
-  const offset = Number(req.query["offset"] ?? 0);
+  const page = parseAdminPagination(req);
+  if (!page) {
+    res.status(400).json({ error: "Invalid pagination parameters" });
+    return;
+  }
+  const { limit, offset } = page;
 
   try {
     const users = await db
@@ -89,6 +111,10 @@ router.get("/users", async (req, res) => {
 // ─── PATCH /admin/users/:id/suspend ──────────────────────────────────────────
 router.patch("/users/:id/suspend", async (req, res) => {
   const id = req.params["id"] as string;
+  if (isProtectedOwnerTarget(id)) {
+    res.status(403).json({ error: "The configured owner account is protected" });
+    return;
+  }
   try {
     await db
       .update(usersTable)
@@ -103,6 +129,10 @@ router.patch("/users/:id/suspend", async (req, res) => {
 // ─── PATCH /admin/users/:id/unsuspend ────────────────────────────────────────
 router.patch("/users/:id/unsuspend", async (req, res) => {
   const id = req.params["id"] as string;
+  if (isProtectedOwnerTarget(id)) {
+    res.status(403).json({ error: "The configured owner account is protected" });
+    return;
+  }
   try {
     await db
       .update(usersTable)
@@ -117,6 +147,10 @@ router.patch("/users/:id/unsuspend", async (req, res) => {
 // ─── DELETE /admin/users/:id ──────────────────────────────────────────────────
 router.delete("/users/:id", async (req, res) => {
   const id = req.params["id"] as string;
+  if (isProtectedOwnerTarget(id)) {
+    res.status(403).json({ error: "The configured owner account is protected" });
+    return;
+  }
   try {
     await db.delete(usersTable).where(eq(usersTable.id, id));
     res.json({ ok: true });
@@ -127,9 +161,19 @@ router.delete("/users/:id", async (req, res) => {
 
 // ─── GET /admin/support ───────────────────────────────────────────────────────
 router.get("/support", async (req, res) => {
-  const limit = Math.min(Number(req.query["limit"] ?? 50), 200);
-  const offset = Number(req.query["offset"] ?? 0);
-  const type = req.query["type"] as string | undefined;
+  const page = parseAdminPagination(req);
+  if (!page) {
+    res.status(400).json({ error: "Invalid pagination parameters" });
+    return;
+  }
+  const { limit, offset } = page;
+  const rawType = req.query["type"];
+  const allowedTypes = new Set(["report", "help", "feature", "feedback"]);
+  if (rawType !== undefined && (typeof rawType !== "string" || !allowedTypes.has(rawType))) {
+    res.status(400).json({ error: "Invalid support type" });
+    return;
+  }
+  const type = rawType as string | undefined;
 
   try {
     const base = db
