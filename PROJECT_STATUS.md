@@ -387,3 +387,11 @@ No production secrets, paid-service credentials, or API keys are required for th
 - Confirmed `requireAuth` checks session expiry and hashes session tokens, while retaining a temporary legacy raw-token compatibility path that upgrades the token after authentication. Remove that compatibility path after legacy sessions have expired/revoked.
 - Confirmed admin middleware requires authenticated `isDeveloper`; still verify that only the intended owner account can ever receive this DB flag and add audited admin actions / re-authentication.
 - No build, typecheck, runtime, concurrency, or mobile regression tests were run for these changes.
+
+
+## Owner-only admin hardening — 2026-11-18
+- Admin middleware now fails closed unless all three conditions hold: authenticated session, server-side `isDeveloper=true`, and user ID exactly matches the deployment-only `NEXORA_OWNER_USER_ID`.
+- `NEXORA_OWNER_USER_ID` is a configuration value, not a password or API key. It must be set to the owner's database user UUID in the production server environment. If absent, all admin routes are disabled by design.
+- User registration and profile update schemas reviewed in auth route do not accept `isDeveloper`; it is not client-settable through those endpoints.
+- Admin endpoints still need further review for destructive-action re-authentication, audit logging, CSRF posture if cookie auth is ever introduced, pagination input validation, and tests proving non-owner developer-flagged accounts are denied.
+- No runtime/build test has been run.
