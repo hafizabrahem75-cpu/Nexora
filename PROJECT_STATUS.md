@@ -395,3 +395,17 @@ No production secrets, paid-service credentials, or API keys are required for th
 - User registration and profile update schemas reviewed in auth route do not accept `isDeveloper`; it is not client-settable through those endpoints.
 - Admin endpoints still need further review for destructive-action re-authentication, audit logging, CSRF posture if cookie auth is ever introduced, pagination input validation, and tests proving non-owner developer-flagged accounts are denied.
 - No runtime/build test has been run.
+
+
+## Admin and mobile security review — 2026-11-18
+- Admin middleware now requires the authenticated account ID to equal server configuration `NEXORA_OWNER_USER_ID`, as well as `isDeveloper=true`; missing owner configuration disables admin routes.
+- Reviewed auth registration/profile schemas: clients cannot set `isDeveloper` through those endpoints.
+- Mobile native session token storage uses Expo SecureStore (Android Keystore / iOS Keychain) with verified migration from legacy AsyncStorage. Web still uses AsyncStorage; this is a known weaker web storage posture and needs separate web threat-model review.
+- Found and fixed a client/server mismatch in account deletion: the server requires currentPassword, so the mobile settings flow now requests it and sends it to the API.
+- Important remaining mobile findings: app-lock PIN uses SHA-256 with a fixed public salt and has no failed-attempt throttling; upgrade to a slow KDF / platform-backed credential protection and add lockout/backoff. Biometric unlock flow and lock initialization need device tests.
+- Registration client currently types the signup response as always containing a session token, while production server may return `emailVerificationRequired` without a token. Align UI flow before production email verification is enabled.
+- Admin destructive actions currently lack fresh password/biometric confirmation and immutable audit trail; implement before launch.
+- No build, typecheck, API integration, or physical-device tests have been run for these changes.
+
+## Product vision and roadmap review — deferred gate
+After security remediation and test gates, perform a formal comparison against the original Nexora vision and blueprint before adding more features. Reconcile each planned capability as implemented / partial / missing / deferred, including social community, messaging, friends/follows, goals/tasks/notes, real AI assistant, video-to-goals import, notifications/push, search/discovery, media, translation, recommendations/marketplace, support/admin, privacy/security, and future embedded browser. Add missing approved items to the roadmap, preserve the Arabic-first premium experience, and keep paid AI/email/service credentials deferred until the core product is stable and a low-cost/free option is chosen.
