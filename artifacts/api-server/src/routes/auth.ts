@@ -7,7 +7,8 @@ import {
 } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import { hashSessionToken } from "../lib/sessionToken";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../lib/email";
@@ -19,6 +20,10 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const BCRYPT_ROUNDS = 12;
+
+function hashOneTimeToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
 
 function makeToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
@@ -98,7 +103,7 @@ router.post("/register", async (req, res) => {
       const verificationToken = makeToken();
       await db.insert(emailVerificationTokensTable).values({
         userId: user.id,
-        token: verificationToken,
+        token: hashOneTimeToken(verificationToken),
         expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
       });
       await sendVerificationEmail(user.email, verificationToken);
@@ -267,7 +272,14 @@ router.post("/change-password", requireAuth, async (req: AuthRequest, res) => {
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(usersTable.id, req.userId!));
 
-    res.json({ ok: true });
+    // Revoke every other device session; keep the session used for this request.
+    const currentToken = (req.headers.authorization ?? "").slice(7).trim();
+    await db.delete(sessionsTable).where(and(
+      eq(sessionsTable.userId, req.userId!),
+      ne(sessionsTable.token, hashSessionToken(currentToken)),
+    ));
+
+    res.json({ ok: true, otherSessionsRevoked: true });
   } catch (err) {
     req.log.error(err, "change-password failed");
     res.status(500).json({ error: "خطأ في الخادم" });
@@ -275,8 +287,21 @@ router.post("/change-password", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── Delete account ───────────────────────────────────────────────────────────
+const DeleteAccountBody = z.object({ currentPassword: z.string().min(1) });
+
 router.delete("/account", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = DeleteAccountBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "يرجى إدخال كلمة المرور الحالية لتأكيد حذف الحساب" });
+    return;
+  }
   try {
+    const [user] = await db.select({ passwordHash: usersTable.passwordHash })
+      .from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user || !(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) {
+      res.status(403).json({ error: "كلمة المرور الحالية غير صحيحة" });
+      return;
+    }
     await db.delete(usersTable).where(eq(usersTable.id, req.userId!));
     res.json({ ok: true });
   } catch (err) {
@@ -306,7 +331,7 @@ router.post("/forgot-password", async (req, res) => {
       const token = makeToken();
       await db.insert(passwordResetTokensTable).values({
         userId: user.id,
-        token,
+        token: hashOneTimeToken(token),
         expiresAt: new Date(Date.now() + RESET_TTL_MS),
       });
       await sendPasswordResetEmail(user.email, token);
@@ -339,7 +364,7 @@ router.post("/reset-password", async (req, res) => {
       .from(passwordResetTokensTable)
       .where(
         and(
-          eq(passwordResetTokensTable.token, token),
+          eq(passwordResetTokensTable.token, hashOneTimeToken(token)),
           eq(passwordResetTokensTable.used, false),
           gt(passwordResetTokensTable.expiresAt, new Date()),
         ),
@@ -351,20 +376,26 @@ router.post("/reset-password", async (req, res) => {
       return;
     }
 
+    // Atomically consume the reset token before changing credentials.
+    const [consumed] = await db.update(passwordResetTokensTable)
+      .set({ used: true })
+      .where(and(
+        eq(passwordResetTokensTable.id, row.id),
+        eq(passwordResetTokensTable.used, false),
+        gt(passwordResetTokensTable.expiresAt, new Date()),
+      ))
+      .returning({ id: passwordResetTokensTable.id });
+    if (!consumed) {
+      res.status(400).json({ error: "رابط إعادة التعيين مستخدم أو منتهي الصلاحية" });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    await db
-      .update(usersTable)
+    await db.update(usersTable)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(usersTable.id, row.userId));
 
-    await db
-      .update(passwordResetTokensTable)
-      .set({ used: true })
-      .where(eq(passwordResetTokensTable.id, row.id));
-
-    await db
-      .delete(sessionsTable)
-      .where(eq(sessionsTable.userId, row.userId));
+    await db.delete(sessionsTable).where(eq(sessionsTable.userId, row.userId));
 
     res.json({ ok: true, message: "تم تغيير كلمة المرور بنجاح" });
   } catch (err) {
@@ -389,7 +420,7 @@ router.post("/verify-email", async (req, res) => {
       .from(emailVerificationTokensTable)
       .where(
         and(
-          eq(emailVerificationTokensTable.token, parsed.data.token),
+          eq(emailVerificationTokensTable.token, hashOneTimeToken(parsed.data.token)),
           gt(emailVerificationTokensTable.expiresAt, new Date()),
         ),
       )
@@ -400,14 +431,21 @@ router.post("/verify-email", async (req, res) => {
       return;
     }
 
-    await db
-      .update(usersTable)
+    // Delete-and-return makes a verification token single-use under concurrent requests.
+    const [consumed] = await db.delete(emailVerificationTokensTable)
+      .where(and(
+        eq(emailVerificationTokensTable.id, row.id),
+        gt(emailVerificationTokensTable.expiresAt, new Date()),
+      ))
+      .returning({ id: emailVerificationTokensTable.id });
+    if (!consumed) {
+      res.status(400).json({ error: "رمز التحقق مستخدم أو منتهي الصلاحية" });
+      return;
+    }
+
+    await db.update(usersTable)
       .set({ emailVerified: true, updatedAt: new Date() })
       .where(eq(usersTable.id, row.userId));
-
-    await db
-      .delete(emailVerificationTokensTable)
-      .where(eq(emailVerificationTokensTable.id, row.id));
 
     res.json({ ok: true, message: "تم التحقق من البريد الإلكتروني بنجاح" });
   } catch (err) {
